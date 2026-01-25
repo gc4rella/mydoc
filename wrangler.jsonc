@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mydoc",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2024-12-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mydoc-db",
+      "database_id": "PLACEHOLDER_GENERATE_WITH_WRANGLER_D1_CREATE",
+      "migrations_dir": "src/db/migrations"
+    }
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}
