@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { RequestWithPatient } from "@/actions/richieste";
 import type { AppointmentWithDetails } from "@/actions/appointments";
 import { deleteRequest, rejectRequest } from "@/actions/richieste";
-import { cancelAppointment } from "@/actions/appointments";
+import {
+  cancelAppointment,
+  scheduleRequestAtNextAvailable,
+} from "@/actions/appointments";
 import {
   Table,
   TableBody,
@@ -17,7 +21,8 @@ import { Button } from "@/components/ui/button";
 import { UrgenzaBadge } from "./status-badge";
 import { NoteEditor } from "./note-editor";
 import { ScheduleDialog } from "@/components/appuntamenti/schedule-dialog";
-import { Trash2, Calendar, X } from "lucide-react";
+import { Trash2, Calendar, X, Zap } from "lucide-react";
+import { REQUEST_STATUS } from "@/lib/request-status";
 
 interface RequestListProps {
   requests: RequestWithPatient[];
@@ -25,6 +30,8 @@ interface RequestListProps {
 }
 
 export function RequestList({ requests, appointments = [] }: RequestListProps) {
+  const router = useRouter();
+
   if (requests.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
@@ -42,19 +49,31 @@ export function RequestList({ requests, appointments = [] }: RequestListProps) {
   const handleDelete = async (id: string) => {
     if (confirm("Sei sicuro di voler eliminare questa richiesta?")) {
       await deleteRequest(id);
+      router.refresh();
     }
   };
 
   const handleReject = async (id: string) => {
     if (confirm("Rimuovere dalla lista d'attesa?")) {
       await rejectRequest(id);
+      router.refresh();
     }
   };
 
   const handleCancelAppointment = async (appointmentId: string) => {
     if (confirm("Annullare l'appuntamento e rimettere in lista d'attesa?")) {
       await cancelAppointment(appointmentId);
+      router.refresh();
     }
+  };
+
+  const handleScheduleNextAvailable = async (requestId: string) => {
+    const result = await scheduleRequestAtNextAvailable(requestId);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    router.refresh();
   };
 
   const formatDateTime = (date: Date) => {
@@ -69,8 +88,12 @@ export function RequestList({ requests, appointments = [] }: RequestListProps) {
   };
 
   // Split by status
-  const waitingRequests = requests.filter((r) => r.stato === "waiting");
-  const scheduledRequests = requests.filter((r) => r.stato === "scheduled");
+  const waitingRequests = requests.filter(
+    (r) => r.stato === REQUEST_STATUS.WAITING
+  );
+  const scheduledRequests = requests.filter(
+    (r) => r.stato === REQUEST_STATUS.SCHEDULED
+  );
 
   return (
     <div className="space-y-6">
@@ -115,6 +138,14 @@ export function RequestList({ requests, appointments = [] }: RequestListProps) {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <ScheduleDialog request={request} />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleScheduleNextAvailable(request.id)}
+                          title="Assegna primo slot disponibile"
+                        >
+                          <Zap className="h-4 w-4 text-amber-600" />
+                        </Button>
                         <NoteEditor
                           requestId={request.id}
                           currentNote={request.note}

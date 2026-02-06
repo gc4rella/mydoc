@@ -4,6 +4,12 @@ import { getDb } from "@/db";
 import { requests, patients, type Request, type NewRequest } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { parseLocalDate } from "@/lib/slot-utils";
+import {
+  isRequestStatus,
+  REQUEST_STATUS,
+  type RequestStatus,
+} from "@/lib/request-status";
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -47,7 +53,7 @@ export async function getRequests(
 
   let results = await query;
 
-  if (statoFilter && statoFilter !== "all") {
+  if (statoFilter && isRequestStatus(statoFilter)) {
     results = results.filter((r) => r.stato === statoFilter);
   }
 
@@ -120,8 +126,8 @@ export async function createRequest(
     patientId,
     motivo: motivo.trim(),
     urgenza,
-    stato: "waiting",
-    desiredDate: desiredDateStr ? new Date(desiredDateStr) : null,
+    stato: REQUEST_STATUS.WAITING,
+    desiredDate: desiredDateStr ? parseLocalDate(desiredDateStr, 0, 0) : null,
     note: null,
     createdAt: new Date(),
   };
@@ -136,7 +142,7 @@ export async function createRequest(
 
 export async function updateRequestStatus(
   id: string,
-  stato: "waiting" | "scheduled" | "rejected"
+  stato: RequestStatus
 ) {
   const db = getDb();
   await db.update(requests).set({ stato }).where(eq(requests.id, id));
@@ -149,7 +155,7 @@ export async function rejectRequest(id: string, note?: string) {
   const db = getDb();
   await db
     .update(requests)
-    .set({ stato: "rejected", note: note || null })
+    .set({ stato: REQUEST_STATUS.REJECTED, note: note || null })
     .where(eq(requests.id, id));
   revalidatePath("/lista-attesa");
   revalidatePath("/");

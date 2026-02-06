@@ -1,8 +1,8 @@
 "use server";
 
 import { getDb } from "@/db";
-import { patients, type Patient, type NewPatient } from "@/db/schema";
-import { eq, like, or } from "drizzle-orm";
+import { patients, requests, type Patient, type NewPatient } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -135,7 +135,19 @@ export async function updatePatient(
 
 export async function deletePatient(id: string) {
   const db = getDb();
+  const linkedRequests = await db
+    .select({ id: requests.id })
+    .from(requests)
+    .where(eq(requests.patientId, id))
+    .limit(1);
+
+  if (linkedRequests.length > 0) {
+    return {
+      error: "Impossibile eliminare: il paziente ha richieste o appuntamenti",
+    };
+  }
+
   await db.delete(patients).where(eq(patients.id, id));
   revalidatePath("/pazienti");
-  redirect("/pazienti");
+  return { success: true };
 }

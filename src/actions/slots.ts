@@ -2,7 +2,7 @@
 
 import { getDb } from "@/db";
 import { doctorSlots, appointments, type DoctorSlot, type NewDoctorSlot } from "@/db/schema";
-import { eq, and, gte, lte, asc } from "drizzle-orm";
+import { eq, and, gte, lte, asc, lt, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { generateSlotRanges } from "@/lib/slot-utils";
 
@@ -66,6 +66,21 @@ export async function createDoctorSlot(
   }
 
   const db = getDb();
+  const overlapping = await db
+    .select({ id: doctorSlots.id })
+    .from(doctorSlots)
+    .where(
+      and(
+        lt(doctorSlots.startTime, endTime),
+        gt(doctorSlots.endTime, startTime)
+      )
+    )
+    .limit(1);
+
+  if (overlapping.length > 0) {
+    return { error: "Esiste già uno slot sovrapposto in questo orario" };
+  }
+
   const newSlot: NewDoctorSlot = {
     id: generateId(),
     startTime,
@@ -76,7 +91,15 @@ export async function createDoctorSlot(
     createdAt: new Date(),
   };
 
-  await db.insert(doctorSlots).values(newSlot);
+  try {
+    await db.insert(doctorSlots).values(newSlot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.toLowerCase().includes("unique")) {
+      return { error: "Slot duplicato" };
+    }
+    return { error: "Errore durante la creazione dello slot" };
+  }
   revalidatePath("/slots");
   revalidatePath("/agenda");
 
@@ -113,7 +136,36 @@ export async function createDoctorSlotsBlock(
   }
 
   const db = getDb();
-  const slots: NewDoctorSlot[] = slotRanges.map((range) => ({
+  const blockStart = slotRanges[0].startTime;
+  const blockEnd = slotRanges[slotRanges.length - 1].endTime;
+
+  const existing = await db
+    .select({
+      startTime: doctorSlots.startTime,
+      endTime: doctorSlots.endTime,
+    })
+    .from(doctorSlots)
+    .where(
+      and(
+        lt(doctorSlots.startTime, blockEnd),
+        gt(doctorSlots.endTime, blockStart)
+      )
+    );
+
+  const hasOverlap = (startTime: Date, endTime: Date) =>
+    existing.some(
+      (slot) => slot.startTime < endTime && slot.endTime > startTime
+    );
+
+  const availableRanges = slotRanges.filter(
+    (range) => !hasOverlap(range.startTime, range.endTime)
+  );
+
+  if (availableRanges.length === 0) {
+    return { error: "Tutti gli slot risultano già occupati o sovrapposti" };
+  }
+
+  const slots: NewDoctorSlot[] = availableRanges.map((range) => ({
     id: generateId(),
     startTime: range.startTime,
     endTime: range.endTime,
@@ -123,11 +175,20 @@ export async function createDoctorSlotsBlock(
     createdAt: new Date(),
   }));
 
-  await db.insert(doctorSlots).values(slots);
+  try {
+    await db.insert(doctorSlots).values(slots);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.toLowerCase().includes("unique")) {
+      return { error: "Slot duplicati rilevati, creazione annullata" };
+    }
+    return { error: "Errore durante la creazione degli slot" };
+  }
   revalidatePath("/slots");
   revalidatePath("/agenda");
 
-  return { success: true, count: slots.length };
+  const skipped = slotRanges.length - slots.length;
+  return { success: true, count: slots.length, skipped };
 }
 
 export async function deleteDoctorSlot(id: string) {

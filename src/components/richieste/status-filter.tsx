@@ -8,18 +8,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { isRequestStatus, REQUEST_STATUS } from "@/lib/request-status";
 
 const statusOptions = [
   { value: "all", label: "Tutti" },
-  { value: "waiting", label: "In Attesa" },
-  { value: "scheduled", label: "Prenotati" },
-  { value: "rejected", label: "Rimossi" },
+  { value: REQUEST_STATUS.WAITING, label: "In Attesa" },
+  { value: REQUEST_STATUS.SCHEDULED, label: "Prenotati" },
+  { value: REQUEST_STATUS.REJECTED, label: "Rimossi" },
 ];
 
 export function StatusFilter() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const currentStatus = searchParams.get("stato") || "all";
+  const rawStatus = searchParams.get("stato");
+  const currentStatus = rawStatus && isRequestStatus(rawStatus) ? rawStatus : "all";
 
   const handleChange = (value: string) => {
     const params = new URLSearchParams(searchParams);

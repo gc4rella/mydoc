@@ -66,7 +66,8 @@ export function QuickSlotForm() {
     if (result.error) {
       setError(result.error);
     } else if (result.success) {
-      setSuccess(`${result.count} slot creati (${preset.label})`);
+      const skipped = result.skipped ? `, ${result.skipped} saltati` : "";
+      setSuccess(`${result.count} slot creati (${preset.label})${skipped}`);
       setTimeout(() => {
         setOpen(false);
         setSuccess(null);
@@ -96,7 +97,8 @@ export function QuickSlotForm() {
     if (result.error) {
       setError(result.error);
     } else if (result.success) {
-      setSuccess(`${result.count} slot creati`);
+      const skipped = result.skipped ? `, ${result.skipped} saltati` : "";
+      setSuccess(`${result.count} slot creati${skipped}`);
       setTimeout(() => {
         setOpen(false);
         setSuccess(null);

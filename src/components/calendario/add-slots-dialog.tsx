@@ -62,7 +62,8 @@ export function AddSlotsDialog({ date, open, onOpenChange, onCreated }: AddSlots
     if (result.error) {
       alert(result.error);
     } else if (result.success) {
-      setSuccess(`${result.count} slot creati`);
+      const skipped = result.skipped ? `, ${result.skipped} saltati` : "";
+      setSuccess(`${result.count} slot creati${skipped}`);
       setTimeout(() => {
         onCreated();
         onOpenChange(false);

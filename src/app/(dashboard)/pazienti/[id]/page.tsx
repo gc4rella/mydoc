@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PatientForm } from "@/components/pazienti/patient-form";
 import { UrgenzaBadge } from "@/components/richieste/status-badge";
-import { getPatient, deletePatient } from "@/actions/pazienti";
+import { getPatient } from "@/actions/pazienti";
 import { getRequestsByPatient } from "@/actions/richieste";
 import { getAppointments } from "@/actions/appointments";
 import { AddToWaitingList } from "@/components/pazienti/add-to-waiting-list";
 import { PatientRequestActions } from "@/components/pazienti/patient-request-actions";
-import { ArrowLeft, Trash2, Clock, Calendar, CheckCircle } from "lucide-react";
+import { DeletePatientButton } from "@/components/pazienti/delete-patient-button";
+import { ArrowLeft, Clock, Calendar, CheckCircle } from "lucide-react";
+import { REQUEST_STATUS } from "@/lib/request-status";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +37,6 @@ export default async function DettaglioPazientePage({ params }: PageProps) {
     appointments.map((a) => [a.requestId, a])
   );
 
-  const deleteWithId = deletePatient.bind(null, id);
-
   const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat("it-IT", {
       day: "2-digit",
@@ -55,9 +55,15 @@ export default async function DettaglioPazientePage({ params }: PageProps) {
     }).format(date);
   };
 
-  const waitingRequests = requests.filter((r) => r.stato === "waiting");
-  const scheduledRequests = requests.filter((r) => r.stato === "scheduled");
-  const pastRequests = requests.filter((r) => r.stato === "rejected");
+  const waitingRequests = requests.filter(
+    (r) => r.stato === REQUEST_STATUS.WAITING
+  );
+  const scheduledRequests = requests.filter(
+    (r) => r.stato === REQUEST_STATUS.SCHEDULED
+  );
+  const pastRequests = requests.filter(
+    (r) => r.stato === REQUEST_STATUS.REJECTED
+  );
 
   return (
     <div>
@@ -68,12 +74,7 @@ export default async function DettaglioPazientePage({ params }: PageProps) {
             Indietro
           </Link>
         </Button>
-        <form action={deleteWithId}>
-          <Button variant="destructive" type="submit">
-            <Trash2 className="h-4 w-4 mr-2" />
-            Elimina
-          </Button>
-        </form>
+        <DeletePatientButton patientId={patient.id} />
       </Header>
       <div className="p-6 space-y-6">
         <div className="grid gap-6 md:grid-cols-2">

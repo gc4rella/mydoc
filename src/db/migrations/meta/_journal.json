@@ -29,6 +29,13 @@
       "when": 1769350174514,
       "tag": "0003_fair_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1770244609798,
+      "tag": "0004_add_unique_indexes",
+      "breakpoints": true
     }
   ]
 }

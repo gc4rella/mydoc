@@ -4,6 +4,7 @@ import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 initOpenNextCloudflareForDev();
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   // Required for Cloudflare Pages
   experimental: {
     serverActions: {

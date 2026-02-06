@@ -1,25 +1,24 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { REQUEST_STATUS, type RequestStatus } from "@/lib/request-status";
 
-type Stato = "waiting" | "scheduled" | "rejected";
-
-const statusConfig: Record<Stato, { label: string; className: string }> = {
-  waiting: {
+const statusConfig: Record<RequestStatus, { label: string; className: string }> = {
+  [REQUEST_STATUS.WAITING]: {
     label: "In Attesa",
     className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
   },
-  scheduled: {
+  [REQUEST_STATUS.SCHEDULED]: {
     label: "Prenotato",
     className: "bg-green-100 text-green-800 hover:bg-green-100",
   },
-  rejected: {
+  [REQUEST_STATUS.REJECTED]: {
     label: "Rimosso",
     className: "bg-gray-100 text-gray-800 hover:bg-gray-100",
   },
 };
 
 interface StatusBadgeProps {
-  stato: Stato;
+  stato: RequestStatus;
 }
 
 export function StatusBadge({ stato }: StatusBadgeProps) {

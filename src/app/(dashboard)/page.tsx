@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, FileText, Clock, AlertCircle } from "lucide-react";
 import { getPatients } from "@/actions/pazienti";
 import { getRequests } from "@/actions/richieste";
+import { REQUEST_STATUS } from "@/lib/request-status";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function DashboardPage() {
   ]);
 
   const waitingCount = requests.filter(
-    (r) => r.stato === "new" || r.stato === "waiting"
+    (r) => r.stato === REQUEST_STATUS.WAITING
   ).length;
   const urgentCount = requests.filter((r) => r.urgenza === "alta").length;
 
