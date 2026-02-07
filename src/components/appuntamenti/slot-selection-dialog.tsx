@@ -347,16 +347,12 @@ export function SlotSelectionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-4 sm:px-6 pb-5 overflow-hidden flex-1 flex flex-col min-h-0 gap-4">
-          <div className="max-w-xl">{infoPanel}</div>
+        <div className="px-4 sm:px-6 pb-5 overflow-hidden flex-1 flex flex-col min-h-0 gap-3">
+          <div className="rounded-lg border overflow-hidden flex-1 flex flex-col min-h-0">
+            <div className="p-3 border-b grid gap-3 lg:grid-cols-[minmax(280px,360px)_1fr] lg:items-start">
+              <div className="min-w-0">{infoPanel}</div>
 
-          {success ? (
-            <div className="flex-1 flex items-center justify-center text-green-600">
-              {successMessage}
-            </div>
-          ) : (
-            <div className="rounded-lg border overflow-hidden flex-1 flex flex-col min-h-0">
-              <div className="p-3 border-b space-y-3">
+              <div className="min-w-0 space-y-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
                     {(["day", "week", "month"] as ViewType[]).map((variant) => (
@@ -435,7 +431,13 @@ export function SlotSelectionDialog({
                   Seleziona uno slot dal calendario per confermare la prenotazione.
                 </p>
               </div>
+            </div>
 
+            {success ? (
+              <div className="flex-1 flex items-center justify-center text-green-600">
+                {successMessage}
+              </div>
+            ) : (
               <div
                 ref={scrollContainerRef}
                 className="flex-1 overflow-auto"
@@ -540,8 +542,8 @@ export function SlotSelectionDialog({
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {submittingSlotId && (
             <p className="text-sm text-muted-foreground">Prenotazione in corso...</p>
