@@ -337,9 +337,9 @@ export function SlotSelectionDialog({
   const interactionDisabled = Boolean(submittingSlotId) || loading;
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="w-[96vw] max-w-6xl h-[90vh] p-0 overflow-hidden">
+      <DialogContent className="w-[96vw] max-w-[96vw] sm:max-w-6xl h-[90vh] p-0 overflow-hidden">
         <DialogHeader className="px-4 sm:px-6 pt-5 pb-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
