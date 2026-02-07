@@ -6,7 +6,6 @@ import type { DoctorSlot } from "@/db/schema";
 import type { AppointmentWithDetails } from "@/actions/appointments";
 import { getAvailableSlotsInRange } from "@/actions/slots";
 import {
-  CALENDAR_ROW_HEIGHT,
   CALENDAR_SLOT_INTERVAL_MINUTES,
   DayColumn,
 } from "@/components/calendario/day-column";
@@ -25,6 +24,8 @@ import { cn } from "@/lib/utils";
 
 type ViewType = "day" | "week" | "month";
 type HoursMode = "business" | "all";
+
+const BOOKING_ROW_HEIGHT = 24;
 
 interface SlotSelectionDialogProps {
   title: string;
@@ -97,6 +98,17 @@ export function SlotSelectionDialog({
     []
   );
 
+  const isMobile = () => {
+    if (typeof window === "undefined") return false;
+    if (typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(max-width: 640px)").matches;
+  };
+
+  const resetAutoScroll = () => {
+    didAutoScrollRef.current = false;
+    pendingScrollSlotIdRef.current = null;
+  };
+
   const loadSlotsFor = async (targetView: ViewType, targetDate: Date) => {
     const requestId = ++requestCounter.current;
     setLoading(true);
@@ -153,18 +165,20 @@ export function SlotSelectionDialog({
     }
 
     const now = new Date();
-    didAutoScrollRef.current = false;
-    pendingScrollSlotIdRef.current = null;
-    setView("week");
+    resetAutoScroll();
+
+    const defaultView: ViewType = isMobile() ? "day" : "week";
+    setView(defaultView);
     setCurrentDate(now);
     setHoursMode("business");
     setSuccess(false);
     setError(null);
     setSubmittingSlotId(null);
-    void loadSlotsFor("week", now);
+    void loadSlotsFor(defaultView, now);
   };
 
   const handlePrev = () => {
+    resetAutoScroll();
     const nextDate = new Date(currentDate);
     if (view === "day") {
       nextDate.setDate(nextDate.getDate() - 1);
@@ -178,6 +192,7 @@ export function SlotSelectionDialog({
   };
 
   const handleNext = () => {
+    resetAutoScroll();
     const nextDate = new Date(currentDate);
     if (view === "day") {
       nextDate.setDate(nextDate.getDate() + 1);
@@ -191,17 +206,20 @@ export function SlotSelectionDialog({
   };
 
   const handleToday = () => {
+    resetAutoScroll();
     const today = new Date();
     setCurrentDate(today);
     void loadSlotsFor(view, today);
   };
 
   const handleViewChange = (nextView: ViewType) => {
+    resetAutoScroll();
     setView(nextView);
     void loadSlotsFor(nextView, currentDate);
   };
 
   const handleDayClick = (date: Date) => {
+    resetAutoScroll();
     setCurrentDate(date);
     setView("day");
     void loadSlotsFor("day", date);
@@ -209,24 +227,30 @@ export function SlotSelectionDialog({
 
   const handleSelect = async (slot: DoctorSlot) => {
     if (submittingSlotId) return;
+    if (loading) return;
 
     setSubmittingSlotId(slot.id);
     setError(null);
 
-    const result = await onSelectSlot(slot);
-    if (result?.error) {
-      setError(result.error);
-      setSubmittingSlotId(null);
-      return;
-    }
+    try {
+      const result = await onSelectSlot(slot);
+      if (result?.error) {
+        setError(result.error);
+        setSubmittingSlotId(null);
+        return;
+      }
 
-    setSuccess(true);
-    setTimeout(() => {
-      setOpen(false);
-      setSuccess(false);
+      setSuccess(true);
+      setTimeout(() => {
+        setOpen(false);
+        setSuccess(false);
+        setSubmittingSlotId(null);
+        router.refresh();
+      }, 1000);
+    } catch {
+      setError("Errore imprevisto durante la prenotazione. Riprova.");
       setSubmittingSlotId(null);
-      router.refresh();
-    }, 1000);
+    }
   };
 
   const formatTitle = () => {
@@ -287,7 +311,7 @@ export function SlotSelectionDialog({
 
   const timelineHeight = useMemo(() => {
     const totalRows = ((endHour - startHour) * 60) / CALENDAR_SLOT_INTERVAL_MINUTES;
-    return totalRows * CALENDAR_ROW_HEIGHT;
+    return totalRows * BOOKING_ROW_HEIGHT;
   }, [endHour, startHour]);
 
   const isToday = (date: Date) => {
@@ -310,200 +334,227 @@ export function SlotSelectionDialog({
   const formatDayName = (date: Date) =>
     new Intl.DateTimeFormat("it-IT", { weekday: "short" }).format(date);
 
+  const interactionDisabled = Boolean(submittingSlotId) || loading;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="w-[96vw] max-w-6xl h-[90vh] p-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-0">
+        <DialogHeader className="px-4 sm:px-6 pt-5 pb-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
             Seleziona uno slot dal calendario per confermare la prenotazione.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-6 space-y-4 overflow-hidden flex-1 flex flex-col">
-          {infoPanel}
+        <div className="px-4 sm:px-6 pb-5 overflow-hidden flex-1 flex flex-col min-h-0">
+          <div className="grid gap-4 lg:grid-cols-[320px_1fr] lg:items-start min-h-0 flex-1">
+            <div className="min-h-0">{infoPanel}</div>
 
-          {success ? (
-            <div className="py-10 text-center text-green-600">{successMessage}</div>
-          ) : (
-            <div className="rounded-lg border overflow-hidden flex-1 flex flex-col min-h-0">
-              <div className="p-3 border-b space-y-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-                    {(["day", "week", "month"] as ViewType[]).map((variant) => (
-                      <Button
-                        key={variant}
-                        variant={view === variant ? "default" : "ghost"}
-                        size="sm"
-                        onClick={() => handleViewChange(variant)}
-                      >
-                        {variant === "day"
-                          ? "Giorno"
-                          : variant === "week"
-                            ? "Settimana"
-                            : "Mese"}
-                      </Button>
-                    ))}
-                  </div>
+            <div className="min-h-0 flex flex-col">
+              {success ? (
+                <div className="py-10 text-center text-green-600">{successMessage}</div>
+              ) : (
+                <div className="rounded-lg border overflow-hidden flex-1 flex flex-col min-h-0">
+                  <div className="p-3 border-b space-y-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                        {(["day", "week", "month"] as ViewType[]).map((variant) => (
+                          <Button
+                            key={variant}
+                            variant={view === variant ? "default" : "ghost"}
+                            size="sm"
+                            disabled={interactionDisabled}
+                            onClick={() => handleViewChange(variant)}
+                          >
+                            {variant === "day"
+                              ? "Giorno"
+                              : variant === "week"
+                                ? "Settimana"
+                                : "Mese"}
+                          </Button>
+                        ))}
+                      </div>
 
-                  <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
-                    {([
-                      { value: "business", label: "Business" },
-                      { value: "all", label: "Tutto" },
-                    ] as const).map((option) => (
-                      <Button
-                        key={option.value}
-                        variant={hoursMode === option.value ? "default" : "ghost"}
-                        size="sm"
-                        onClick={() => setHoursMode(option.value)}
-                        className="text-xs"
-                        title={
-                          option.value === "business"
-                            ? "08:00 - 21:00"
-                            : "00:00 - 24:00"
-                        }
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-                  </div>
+                      <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                        {([
+                          { value: "business", label: "Business" },
+                          { value: "all", label: "Tutto" },
+                        ] as const).map((option) => (
+                          <Button
+                            key={option.value}
+                            variant={hoursMode === option.value ? "default" : "ghost"}
+                            size="sm"
+                            disabled={interactionDisabled}
+                            onClick={() => setHoursMode(option.value)}
+                            className="text-xs"
+                            title={
+                              option.value === "business"
+                                ? "08:00 - 21:00"
+                                : "00:00 - 24:00"
+                            }
+                          >
+                            {option.label}
+                          </Button>
+                        ))}
+                      </div>
 
-                  <div className="flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
-                    <Button variant="outline" size="sm" onClick={handleToday}>
-                      Oggi
-                    </Button>
-                    <div className="grid grid-cols-[auto_minmax(140px,1fr)_auto] items-center gap-1 w-full sm:w-auto">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handlePrev}
-                        aria-label="Periodo precedente"
-                        title="Periodo precedente"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <span className="min-w-0 text-center text-sm font-medium capitalize truncate px-1">
-                        {formatTitle()}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleNext}
-                        aria-label="Periodo successivo"
-                        title="Periodo successivo"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleToday}
+                          disabled={interactionDisabled}
+                        >
+                          Oggi
+                        </Button>
+                        <div className="grid grid-cols-[auto_minmax(140px,1fr)_auto] items-center gap-1 w-full sm:w-auto">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handlePrev}
+                            disabled={interactionDisabled}
+                            aria-label="Periodo precedente"
+                            title="Periodo precedente"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </Button>
+                          <span className="min-w-0 text-center text-sm font-medium capitalize truncate px-1">
+                            {formatTitle()}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleNext}
+                            disabled={interactionDisabled}
+                            aria-label="Periodo successivo"
+                            title="Periodo successivo"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Seleziona uno slot dal calendario per confermare la prenotazione.
+                    </p>
+                  </div>
+
+                  <div
+                    ref={scrollContainerRef}
+                    className="flex-1 overflow-auto"
+                    aria-busy={interactionDisabled}
+                  >
+                    {loading ? (
+                      <div className="h-full flex items-center justify-center text-muted-foreground">
+                        Caricamento...
+                      </div>
+                    ) : (
+                      <div className="relative h-full">
+                        {view === "month" ? (
+                          <MonthGrid
+                            currentDate={currentDate}
+                            slots={availableSlots}
+                            appointments={emptyAppointments}
+                            onDayClick={handleDayClick}
+                          />
+                        ) : (
+                          <div className="touch-pan-x touch-pan-y">
+                            <div
+                              className={cn(
+                                "grid",
+                                view === "day" ? "min-w-[360px]" : "min-w-[760px]",
+                                view === "day"
+                                  ? "grid-cols-[48px_minmax(240px,1fr)]"
+                                  : "grid-cols-[48px_repeat(7,minmax(110px,1fr))]"
+                              )}
+                            >
+                              <div className="sticky top-0 left-0 z-30 border-r border-b bg-background" />
+                              {days().map((date) => {
+                                const pastDay = isPastDay(date);
+                                const isClickable = view === "week";
+                                return (
+                                  <div
+                                    key={`header-${date.toISOString()}`}
+                                    data-calendar-day-header
+                                    className={cn(
+                                      "sticky top-0 z-20 border-r border-b px-2 py-2 text-center bg-background",
+                                      isClickable &&
+                                        !interactionDisabled &&
+                                        "cursor-pointer transition-colors hover:bg-muted/40",
+                                      isToday(date) && "bg-primary text-primary-foreground",
+                                      pastDay &&
+                                        !isToday(date) &&
+                                        "bg-gray-50/70 text-muted-foreground"
+                                    )}
+                                    onClick={() => {
+                                      if (interactionDisabled) return;
+                                      if (isClickable) {
+                                        handleDayClick(date);
+                                      }
+                                    }}
+                                  >
+                                    <div className="text-[11px] uppercase leading-none">
+                                      {formatDayName(date)}
+                                    </div>
+                                    <div className="text-lg leading-tight">{date.getDate()}</div>
+                                  </div>
+                                );
+                              })}
+
+                              <div
+                                className="sticky left-0 z-10 relative border-r bg-muted/20"
+                                style={{ height: timelineHeight }}
+                              >
+                                {hours.map((hour, index) => (
+                                  <span
+                                    key={hour}
+                                    className="absolute left-1 text-[10px] text-muted-foreground"
+                                    style={{ top: index * 2 * BOOKING_ROW_HEIGHT - 6 }}
+                                  >
+                                    {String(hour).padStart(2, "0")}:00
+                                  </span>
+                                ))}
+                              </div>
+                              {days().map((date) => (
+                                <DayColumn
+                                  key={date.toISOString()}
+                                  date={date}
+                                  slots={availableSlots}
+                                  appointments={emptyAppointments}
+                                  onSlotClick={(slot) => {
+                                    void handleSelect(slot);
+                                  }}
+                                  showHeader={false}
+                                  startHour={startHour}
+                                  endHour={endHour}
+                                  rowHeight={BOOKING_ROW_HEIGHT}
+                                  interactionDisabled={interactionDisabled}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {availableSlots.length === 0 && (
+                          <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none">
+                            <div className="max-w-sm rounded-lg border bg-background/90 p-4 text-center text-muted-foreground shadow-sm">
+                              {emptyState}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Seleziona uno slot dal calendario per confermare la prenotazione.
-                </p>
-              </div>
+              )}
 
-              <div ref={scrollContainerRef} className="flex-1 overflow-auto">
-                {loading ? (
-                  <div className="h-full flex items-center justify-center text-muted-foreground">
-                    Caricamento...
-                  </div>
-                ) : (
-                  <div className="relative h-full">
-                    {view === "month" ? (
-                      <MonthGrid
-                        currentDate={currentDate}
-                        slots={availableSlots}
-                        appointments={emptyAppointments}
-                        onDayClick={handleDayClick}
-                      />
-                    ) : (
-                      <div className="touch-pan-x touch-pan-y">
-                        <div
-                          className={cn(
-                            "grid min-w-[760px]",
-                            view === "day"
-                              ? "grid-cols-[48px_minmax(240px,1fr)]"
-                              : "grid-cols-[48px_repeat(7,minmax(110px,1fr))]"
-                          )}
-                        >
-                          <div className="sticky top-0 left-0 z-30 border-r border-b bg-background" />
-                          {days().map((date) => {
-                            const pastDay = isPastDay(date);
-                            const isClickable = view === "week";
-                            return (
-                              <div
-                                key={`header-${date.toISOString()}`}
-                                data-calendar-day-header
-                                className={cn(
-                                  "sticky top-0 z-20 border-r border-b px-2 py-2 text-center bg-background",
-                                  isClickable && "cursor-pointer transition-colors hover:bg-muted/40",
-                                  isToday(date) && "bg-primary text-primary-foreground",
-                                  pastDay && !isToday(date) && "bg-gray-50/70 text-muted-foreground"
-                                )}
-                                onClick={() => {
-                                  if (isClickable) {
-                                    handleDayClick(date);
-                                  }
-                                }}
-                              >
-                                <div className="text-[11px] uppercase leading-none">
-                                  {formatDayName(date)}
-                                </div>
-                                <div className="text-lg leading-tight">{date.getDate()}</div>
-                              </div>
-                            );
-                          })}
-
-                          <div
-                            className="sticky left-0 z-10 relative border-r bg-muted/20"
-                            style={{ height: timelineHeight }}
-                          >
-                            {hours.map((hour, index) => (
-                              <span
-                                key={hour}
-                                className="absolute left-1 text-[10px] text-muted-foreground"
-                                style={{ top: index * 2 * CALENDAR_ROW_HEIGHT - 6 }}
-                              >
-                                {String(hour).padStart(2, "0")}:00
-                              </span>
-                            ))}
-                          </div>
-                          {days().map((date) => (
-                            <DayColumn
-                              key={date.toISOString()}
-                              date={date}
-                              slots={availableSlots}
-                              appointments={emptyAppointments}
-                              onSlotClick={(slot) => {
-                                void handleSelect(slot);
-                              }}
-                              showHeader={false}
-                              startHour={startHour}
-                              endHour={endHour}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {availableSlots.length === 0 && (
-                      <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none">
-                        <div className="max-w-sm rounded-lg border bg-background/90 p-4 text-center text-muted-foreground shadow-sm">
-                          {emptyState}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {submittingSlotId && (
+                <p className="mt-3 text-sm text-muted-foreground">Prenotazione in corso...</p>
+              )}
+              {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
             </div>
-          )}
-
-          {submittingSlotId && (
-            <p className="text-sm text-muted-foreground">Prenotazione in corso...</p>
-          )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

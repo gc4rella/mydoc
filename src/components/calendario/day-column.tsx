@@ -10,12 +10,12 @@ import { Clock, Plus, User } from "lucide-react";
 const DAY_START_HOUR = 7;
 const DAY_END_HOUR = 21;
 const SLOT_INTERVAL_MINUTES = 30;
-const ROW_HEIGHT = 30;
+const DEFAULT_ROW_HEIGHT = 30;
 
 export const CALENDAR_DAY_START_HOUR = DAY_START_HOUR;
 export const CALENDAR_DAY_END_HOUR = DAY_END_HOUR;
 export const CALENDAR_SLOT_INTERVAL_MINUTES = SLOT_INTERVAL_MINUTES;
-export const CALENDAR_ROW_HEIGHT = ROW_HEIGHT;
+export const CALENDAR_ROW_HEIGHT = DEFAULT_ROW_HEIGHT;
 
 interface DayColumnProps {
   date: Date;
@@ -28,6 +28,8 @@ interface DayColumnProps {
   showHeader?: boolean;
   startHour?: number;
   endHour?: number;
+  rowHeight?: number;
+  interactionDisabled?: boolean;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -49,6 +51,8 @@ export function DayColumn({
   showHeader = true,
   startHour = DAY_START_HOUR,
   endHour = DAY_END_HOUR,
+  rowHeight = DEFAULT_ROW_HEIGHT,
+  interactionDisabled = false,
 }: DayColumnProps) {
   const now = new Date();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -59,7 +63,7 @@ export function DayColumn({
   const dayStartMinutes = startHour * 60;
   const dayEndMinutes = endHour * 60;
   const totalRows = (dayEndMinutes - dayStartMinutes) / SLOT_INTERVAL_MINUTES;
-  const timelineHeight = totalRows * ROW_HEIGHT;
+  const timelineHeight = totalRows * rowHeight;
 
   const isToday = () => {
     return (
@@ -110,7 +114,7 @@ export function DayColumn({
     if (!gridRef.current) return dayStartMinutes;
     const rect = gridRef.current.getBoundingClientRect();
     const y = clamp(clientY - rect.top, 0, rect.height);
-    const row = clamp(Math.floor(y / ROW_HEIGHT), 0, totalRows);
+    const row = clamp(Math.floor(y / rowHeight), 0, totalRows);
     return dayStartMinutes + row * SLOT_INTERVAL_MINUTES;
   };
 
@@ -161,13 +165,13 @@ export function DayColumn({
 
   const selectionTop =
     selectionStart !== null
-      ? ((selectionStart - dayStartMinutes) / SLOT_INTERVAL_MINUTES) * ROW_HEIGHT
+      ? ((selectionStart - dayStartMinutes) / SLOT_INTERVAL_MINUTES) * rowHeight
       : 0;
   const selectionHeight =
     selectionStart !== null && selectionEnd !== null
       ? Math.max(
-          ((selectionEnd - selectionStart) / SLOT_INTERVAL_MINUTES) * ROW_HEIGHT,
-          ROW_HEIGHT
+          ((selectionEnd - selectionStart) / SLOT_INTERVAL_MINUTES) * rowHeight,
+          rowHeight
         )
       : 0;
 
@@ -216,7 +220,7 @@ export function DayColumn({
         {showTimeAxis &&
           Array.from({ length: endHour - startHour + 1 }, (_, index) => {
             const hour = startHour + index;
-            const top = index * 2 * ROW_HEIGHT - 6;
+            const top = index * 2 * rowHeight - 6;
             return (
               <span
                 key={hour}
@@ -232,6 +236,7 @@ export function DayColumn({
           ref={gridRef}
           className="absolute inset-0"
           onPointerDown={(event) => {
+            if (interactionDisabled) return;
             if (!canCreateRange || event.button !== 0) return;
             const target = event.target as HTMLElement;
             if (target.closest("[data-slot-item='true']")) return;
@@ -239,18 +244,22 @@ export function DayColumn({
             event.currentTarget.setPointerCapture(event.pointerId);
           }}
           onPointerMove={(event) => {
+            if (interactionDisabled) return;
             if (!canCreateRange) return;
             updateDrag(event.clientY);
           }}
           onPointerUp={() => {
+            if (interactionDisabled) return;
             if (!canCreateRange) return;
             finalizeDrag();
           }}
           onPointerCancel={() => {
+            if (interactionDisabled) return;
             if (!canCreateRange) return;
             finalizeDrag();
           }}
           onPointerLeave={() => {
+            if (interactionDisabled) return;
             if (!canCreateRange || !isDragging) return;
             finalizeDrag();
           }}
@@ -262,7 +271,7 @@ export function DayColumn({
                 "absolute inset-x-0",
                 index % 2 === 0 ? "bg-muted/15" : "bg-transparent"
               )}
-              style={{ top: index * 2 * ROW_HEIGHT, height: 2 * ROW_HEIGHT }}
+              style={{ top: index * 2 * rowHeight, height: 2 * rowHeight }}
             />
           ))}
 
@@ -275,7 +284,7 @@ export function DayColumn({
                   ? "border-muted-foreground/30"
                   : "border-dashed border-muted-foreground/20"
               )}
-              style={{ top: index * ROW_HEIGHT }}
+              style={{ top: index * rowHeight }}
             />
           ))}
 
@@ -297,15 +306,17 @@ export function DayColumn({
             const clippedEnd = Math.min(slotEndMinutes, dayEndMinutes);
 
             const top =
-              ((clippedStart - dayStartMinutes) / SLOT_INTERVAL_MINUTES) * ROW_HEIGHT + 2;
+              ((clippedStart - dayStartMinutes) / SLOT_INTERVAL_MINUTES) * rowHeight + 2;
             const height = Math.max(
-              ((clippedEnd - clippedStart) / SLOT_INTERVAL_MINUTES) * ROW_HEIGHT - 4,
+              ((clippedEnd - clippedStart) / SLOT_INTERVAL_MINUTES) * rowHeight - 4,
               24
             );
 
             const isPastSlot = slot.endTime < now;
             const appointment = appointments.get(slot.id);
             const isBooked = !slot.isAvailable && appointment;
+
+            const isDisabled = interactionDisabled || isPastSlot;
 
             return (
               <button
@@ -329,8 +340,11 @@ export function DayColumn({
                     "border-gray-300 bg-gray-100 text-gray-600"
                 )}
                 style={{ top, height }}
-                disabled={isPastSlot}
-                onClick={() => onSlotClick?.(slot, appointment)}
+                disabled={isDisabled}
+                onClick={() => {
+                  if (interactionDisabled) return;
+                  onSlotClick?.(slot, appointment);
+                }}
               >
                 <div className="flex items-center justify-between gap-1 font-semibold leading-none">
                   <span className="min-w-0 truncate whitespace-nowrap">
