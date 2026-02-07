@@ -49,7 +49,6 @@ export function RescheduleDialog({ appointment, trigger }: RescheduleDialogProps
       }
       emptyState="Nessun altro slot disponibile."
       successMessage="Appuntamento spostato!"
-      maxSlots={15}
       onSelectSlot={(slot) => rescheduleAppointment(appointment.id, slot.id)}
     />
   );

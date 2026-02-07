@@ -15,7 +15,7 @@ function CalendarLoading() {
 export default function AgendaPage() {
   return (
     <div>
-      <Header title="Agenda" />
+      <Header title="Agenda e Disponibilita" />
       <div className="p-6">
         <Suspense fallback={<CalendarLoading />}>
           <CalendarView />

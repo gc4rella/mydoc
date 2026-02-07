@@ -1,21 +1,30 @@
 "use client";
 
-import { useState, useEffect, useCallback, useTransition } from "react";
+import { useMemo, useRef, useState, useEffect, useCallback, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { DoctorSlot } from "@/db/schema";
 import type { AppointmentWithDetails } from "@/actions/appointments";
 import { getAvailableSlotsInRange } from "@/actions/slots";
 import { getAppointments } from "@/actions/appointments";
-import { DayColumn } from "./day-column";
+import {
+  CALENDAR_ROW_HEIGHT,
+  CALENDAR_SLOT_INTERVAL_MINUTES,
+  DayColumn,
+} from "./day-column";
 import { MonthGrid } from "./month-grid";
 import { SlotDetailDialog } from "./slot-detail-dialog";
 import { AddSlotsDialog } from "./add-slots-dialog";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ViewType = "day" | "week" | "month";
+type HoursMode = "business" | "all";
+
+function isHoursMode(value: string | null): value is HoursMode {
+  return value === "business" || value === "all";
+}
 
 function getMonday(date: Date): Date {
   const d = new Date(date);
@@ -44,14 +53,18 @@ function parseDateParam(param: string): Date | null {
 export function CalendarView() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Initialize from URL params
   const initialView = (searchParams.get("view") as ViewType) || "week";
   const initialDateParam = searchParams.get("date");
   const initialDate = initialDateParam ? parseDateParam(initialDateParam) : new Date();
+  const rawHours = searchParams.get("hours");
+  const initialHours: HoursMode = isHoursMode(rawHours) ? rawHours : "business";
 
   const [view, setView] = useState<ViewType>(initialView);
   const [currentDate, setCurrentDate] = useState<Date>(initialDate || new Date());
+  const [hoursMode, setHoursMode] = useState<HoursMode>(initialHours);
   const [slots, setSlots] = useState<DoctorSlot[]>([]);
   const [appointments, setAppointments] = useState<Map<string, AppointmentWithDetails>>(
     new Map()
@@ -67,12 +80,16 @@ export function CalendarView() {
   // Add dialog state
   const [addDate, setAddDate] = useState<Date | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addRange, setAddRange] = useState<{ startMinutes: number; endMinutes: number } | null>(
+    null
+  );
 
   // Update URL when view or date changes
-  const updateUrl = useCallback((newView: ViewType, newDate: Date) => {
+  const updateUrl = useCallback((newView: ViewType, newDate: Date, newHours: HoursMode) => {
     const params = new URLSearchParams();
     params.set("view", newView);
     params.set("date", formatDateParam(newDate));
+    params.set("hours", newHours);
     router.replace(`/agenda?${params.toString()}`, { scroll: false });
   }, [router]);
 
@@ -123,7 +140,7 @@ export function CalendarView() {
 
   const handleViewChange = (newView: ViewType) => {
     setView(newView);
-    updateUrl(newView, currentDate);
+    updateUrl(newView, currentDate, hoursMode);
   };
 
   const handlePrev = () => {
@@ -136,7 +153,7 @@ export function CalendarView() {
       newDate.setMonth(newDate.getMonth() - 1);
     }
     setCurrentDate(newDate);
-    updateUrl(view, newDate);
+    updateUrl(view, newDate, hoursMode);
   };
 
   const handleNext = () => {
@@ -149,13 +166,13 @@ export function CalendarView() {
       newDate.setMonth(newDate.getMonth() + 1);
     }
     setCurrentDate(newDate);
-    updateUrl(view, newDate);
+    updateUrl(view, newDate, hoursMode);
   };
 
   const handleToday = () => {
     const today = new Date();
     setCurrentDate(today);
-    updateUrl(view, today);
+    updateUrl(view, today, hoursMode);
   };
 
   const handleSlotClick = (slot: DoctorSlot, appointment?: AppointmentWithDetails) => {
@@ -165,6 +182,13 @@ export function CalendarView() {
   };
 
   const handleAddClick = (date: Date) => {
+    setAddRange(null);
+    setAddDate(date);
+    setAddOpen(true);
+  };
+
+  const handleCreateRange = (date: Date, startMinutes: number, endMinutes: number) => {
+    setAddRange({ startMinutes, endMinutes });
     setAddDate(date);
     setAddOpen(true);
   };
@@ -172,7 +196,7 @@ export function CalendarView() {
   const handleDayClick = (date: Date) => {
     setCurrentDate(date);
     setView("day");
-    updateUrl("day", date);
+    updateUrl("day", date, hoursMode);
   };
 
   const formatTitle = () => {
@@ -213,6 +237,43 @@ export function CalendarView() {
     return [];
   };
 
+  const { startHour, endHour } = useMemo(() => {
+    if (hoursMode === "business") {
+      return { startHour: 8, endHour: 21 };
+    }
+    return { startHour: 0, endHour: 24 };
+  }, [hoursMode]);
+
+  const hours = useMemo(
+    () => Array.from({ length: endHour - startHour }, (_, index) => startHour + index),
+    [endHour, startHour]
+  );
+
+  const timelineHeight = useMemo(() => {
+    const totalRows = ((endHour - startHour) * 60) / CALENDAR_SLOT_INTERVAL_MINUTES;
+    return totalRows * CALENDAR_ROW_HEIGHT;
+  }, [endHour, startHour]);
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
+    );
+  };
+
+  const isPastDay = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+    return checkDate < today;
+  };
+
+  const formatDayName = (date: Date) =>
+    new Intl.DateTimeFormat("it-IT", { weekday: "short" }).format(date);
+
   return (
     <>
       <Card>
@@ -235,6 +296,30 @@ export function CalendarView() {
 
             {/* Navigation */}
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+                {([
+                  { value: "business", label: "Business" },
+                  { value: "all", label: "Tutto" },
+                ] as const).map((option) => (
+                  <Button
+                    key={option.value}
+                    variant={hoursMode === option.value ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => {
+                      setHoursMode(option.value);
+                      updateUrl(view, currentDate, option.value);
+                    }}
+                    className="text-xs"
+                    title={
+                      option.value === "business"
+                        ? "08:00 - 21:00"
+                        : "00:00 - 24:00"
+                    }
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
               <Button variant="outline" size="sm" onClick={handleToday}>
                 Oggi
               </Button>
@@ -251,6 +336,11 @@ export function CalendarView() {
               </div>
             </div>
           </div>
+          {(view === "day" || view === "week") && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Trascina sul calendario per creare uno slot personalizzato.
+            </p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -266,20 +356,104 @@ export function CalendarView() {
               onAddClick={handleAddClick}
             />
           ) : (
-            <div className={cn(
-              "grid border-t",
-              view === "day" ? "grid-cols-1" : "grid-cols-7"
-            )}>
-              {getDays().map((date) => (
-                <DayColumn
-                  key={date.toISOString()}
-                  date={date}
-                  slots={slots}
-                  appointments={appointments}
-                  onSlotClick={handleSlotClick}
-                  onAddClick={handleAddClick}
-                />
-              ))}
+            <div className="border-t">
+              <div
+                ref={scrollContainerRef}
+                className="h-[calc(100vh-380px)] min-h-[440px] max-h-[680px] overflow-auto"
+              >
+                <div
+                  className={cn(
+                    "grid min-w-[760px]",
+                    view === "day"
+                      ? "grid-cols-[48px_minmax(240px,1fr)]"
+                      : "grid-cols-[48px_repeat(7,minmax(110px,1fr))]"
+                  )}
+                >
+                  <div className="sticky top-0 left-0 z-30 border-r border-b bg-background" />
+                  {getDays().map((date) => {
+                    const pastDay = isPastDay(date);
+                    const isClickable = view === "week";
+                    return (
+                      <div
+                        key={`header-${date.toISOString()}`}
+                        data-calendar-day-header
+                        role={isClickable ? "button" : undefined}
+                        tabIndex={isClickable ? 0 : undefined}
+                        className={cn(
+                          "sticky top-0 z-20 relative border-r border-b px-2 py-2 text-center bg-background",
+                          isClickable && "cursor-pointer transition-colors hover:bg-muted/40",
+                          isToday(date) && "bg-primary text-primary-foreground",
+                          pastDay && !isToday(date) && "bg-gray-50/70 text-muted-foreground"
+                        )}
+                        onClick={() => {
+                          if (isClickable) {
+                            handleDayClick(date);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (!isClickable) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleDayClick(date);
+                          }
+                        }}
+                      >
+                        <div className="text-[11px] uppercase leading-none">
+                          {formatDayName(date)}
+                        </div>
+                        <div className="text-lg leading-tight">{date.getDate()}</div>
+                        {!pastDay && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "absolute right-1 top-1 h-6 w-6 p-0",
+                              isToday(date)
+                                ? "hover:bg-primary-foreground/20 text-primary-foreground"
+                                : "hover:bg-muted"
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleAddClick(date);
+                            }}
+                            title="Aggiungi slot"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div
+                    className="sticky left-0 z-10 relative border-r bg-muted/20"
+                    style={{ height: timelineHeight }}
+                  >
+                    {hours.map((hour, index) => (
+                      <span
+                        key={hour}
+                        className="absolute left-1 text-[10px] text-muted-foreground"
+                        style={{ top: index * 2 * CALENDAR_ROW_HEIGHT - 6 }}
+                      >
+                        {String(hour).padStart(2, "0")}:00
+                      </span>
+                    ))}
+                  </div>
+                  {getDays().map((date) => (
+                    <DayColumn
+                      key={date.toISOString()}
+                      date={date}
+                      slots={slots}
+                      appointments={appointments}
+                      onSlotClick={handleSlotClick}
+                      onCreateRange={handleCreateRange}
+                      showHeader={false}
+                      startHour={startHour}
+                      endHour={endHour}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -299,8 +473,16 @@ export function CalendarView() {
         <AddSlotsDialog
           date={addDate}
           open={addOpen}
-          onOpenChange={setAddOpen}
+          onOpenChange={(open) => {
+            setAddOpen(open);
+            if (!open) {
+              setAddDate(null);
+              setAddRange(null);
+            }
+          }}
           onCreated={loadData}
+          initialStartMinutes={addRange?.startMinutes}
+          initialEndMinutes={addRange?.endMinutes}
         />
       )}
     </>

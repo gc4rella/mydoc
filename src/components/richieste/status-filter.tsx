@@ -30,7 +30,8 @@ export function StatusFilter() {
     } else {
       params.set("stato", value);
     }
-    router.replace(`/lista-attesa?${params.toString()}`);
+    const queryString = params.toString();
+    router.replace(queryString ? `/lista-attesa?${queryString}` : "/lista-attesa");
   };
 
   return (

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Users, FileText, Home, LogOut, Calendar, Clock } from "lucide-react";
+import { Users, FileText, Home, LogOut, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logout } from "@/actions/auth";
 
@@ -12,7 +12,6 @@ const navigation = [
   { name: "Pazienti", href: "/pazienti", icon: Users },
   { name: "Lista d'Attesa", href: "/lista-attesa", icon: FileText },
   { name: "Agenda", href: "/agenda", icon: Calendar },
-  { name: "Disponibilita", href: "/slots", icon: Clock },
 ];
 
 export function Sidebar() {

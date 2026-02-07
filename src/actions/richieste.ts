@@ -20,6 +20,7 @@ export type RequestWithPatient = Request & {
     id: string;
     nome: string;
     cognome: string;
+    telefono: string;
   };
 };
 
@@ -27,7 +28,8 @@ export type RequestWithPatient = Request & {
 const urgenzaOrder = { alta: 0, media: 1, bassa: 2 };
 
 export async function getRequests(
-  statoFilter?: string
+  statoFilter?: string,
+  searchQuery?: string
 ): Promise<RequestWithPatient[]> {
   const db = getDb();
 
@@ -45,6 +47,7 @@ export async function getRequests(
         id: patients.id,
         nome: patients.nome,
         cognome: patients.cognome,
+        telefono: patients.telefono,
       },
     })
     .from(requests)
@@ -55,6 +58,23 @@ export async function getRequests(
 
   if (statoFilter && isRequestStatus(statoFilter)) {
     results = results.filter((r) => r.stato === statoFilter);
+  }
+
+  const normalizedQuery = searchQuery?.trim().toLowerCase();
+  if (normalizedQuery) {
+    results = results.filter((request) => {
+      const haystack = [
+        request.patient.nome,
+        request.patient.cognome,
+        request.patient.telefono,
+        request.motivo,
+        request.note || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(normalizedQuery);
+    });
   }
 
   // Sort by urgency (alta first) then by creation date
@@ -86,6 +106,7 @@ export async function getRequest(
         id: patients.id,
         nome: patients.nome,
         cognome: patients.cognome,
+        telefono: patients.telefono,
       },
     })
     .from(requests)

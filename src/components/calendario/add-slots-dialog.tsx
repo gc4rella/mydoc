@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { createDoctorSlotsBlock } from "@/actions/slots";
+import { useMemo, useState } from "react";
+import { createDoctorSlot, createDoctorSlotsBlock } from "@/actions/slots";
 import { formatDateLocal } from "@/lib/slot-utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -29,12 +30,59 @@ interface AddSlotsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
+  initialStartMinutes?: number;
+  initialEndMinutes?: number;
 }
 
-export function AddSlotsDialog({ date, open, onOpenChange, onCreated }: AddSlotsDialogProps) {
+function minutesToTimeValue(minutes: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, minutes));
+  const hh = String(Math.floor(clamped / 60)).padStart(2, "0");
+  const mm = String(clamped % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function timeValueToMinutes(value: string): number | null {
+  const [hh, mm] = value.split(":").map(Number);
+  if (
+    Number.isNaN(hh) ||
+    Number.isNaN(mm) ||
+    hh < 0 ||
+    hh > 23 ||
+    mm < 0 ||
+    mm > 59
+  ) {
+    return null;
+  }
+  return hh * 60 + mm;
+}
+
+export function AddSlotsDialog({
+  date,
+  open,
+  onOpenChange,
+  onCreated,
+  initialStartMinutes,
+  initialEndMinutes,
+}: AddSlotsDialogProps) {
   const [duration, setDuration] = useState("30");
+  const [customStart, setCustomStart] = useState(() =>
+    minutesToTimeValue(initialStartMinutes ?? 9 * 60)
+  );
+  const [customEnd, setCustomEnd] = useState(() =>
+    minutesToTimeValue(initialEndMinutes ?? (initialStartMinutes ?? 9 * 60) + 30)
+  );
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const customDuration = useMemo(() => {
+    const startMinutes = timeValueToMinutes(customStart);
+    const endMinutes = timeValueToMinutes(customEnd);
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+      return null;
+    }
+    return endMinutes - startMinutes;
+  }, [customStart, customEnd]);
 
   const formatDate = (d: Date) => {
     return new Intl.DateTimeFormat("it-IT", {
@@ -48,6 +96,7 @@ export function AddSlotsDialog({ date, open, onOpenChange, onCreated }: AddSlots
   const handlePreset = async (preset: typeof PRESETS[0]) => {
     setLoading(true);
     setSuccess(null);
+    setError(null);
 
     const formData = new FormData();
     formData.set("date", formatDateLocal(date));
@@ -60,10 +109,54 @@ export function AddSlotsDialog({ date, open, onOpenChange, onCreated }: AddSlots
     const result = await createDoctorSlotsBlock(undefined, formData);
 
     if (result.error) {
-      alert(result.error);
+      setError(result.error);
     } else if (result.success) {
       const skipped = result.skipped ? `, ${result.skipped} saltati` : "";
       setSuccess(`${result.count} slot creati${skipped}`);
+      setTimeout(() => {
+        onCreated();
+        onOpenChange(false);
+        setSuccess(null);
+      }, 800);
+    }
+    setLoading(false);
+  };
+
+  const handleCreateCustomSlot = async () => {
+    const startMinutes = timeValueToMinutes(customStart);
+    const endMinutes = timeValueToMinutes(customEnd);
+
+    if (startMinutes === null || endMinutes === null) {
+      setError("Inserisci orari validi");
+      return;
+    }
+
+    if (endMinutes <= startMinutes) {
+      setError("L'orario di fine deve essere successivo all'inizio");
+      return;
+    }
+
+    const startDate = new Date(date);
+    startDate.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+
+    const endDate = new Date(date);
+    endDate.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+
+    setLoading(true);
+    setSuccess(null);
+    setError(null);
+
+    const formData = new FormData();
+    formData.set("startTime", startDate.toISOString());
+    formData.set("endTime", endDate.toISOString());
+    formData.set("durationMinutes", (endMinutes - startMinutes).toString());
+
+    const result = await createDoctorSlot(undefined, formData);
+
+    if (result.error) {
+      setError(result.error);
+    } else if (result.success) {
+      setSuccess("Slot personalizzato creato");
       setTimeout(() => {
         onCreated();
         onOpenChange(false);
@@ -122,9 +215,48 @@ export function AddSlotsDialog({ date, open, onOpenChange, onCreated }: AddSlots
             ))}
           </div>
 
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="text-sm font-medium">Slot personalizzato</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Inizio</label>
+                <Input
+                  type="time"
+                  value={customStart}
+                  onChange={(event) => setCustomStart(event.target.value)}
+                  disabled={loading}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fine</label>
+                <Input
+                  type="time"
+                  value={customEnd}
+                  onChange={(event) => setCustomEnd(event.target.value)}
+                  disabled={loading}
+                />
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {customDuration ? `Durata: ${customDuration} min` : "Durata non valida"}
+            </div>
+            <Button
+              onClick={handleCreateCustomSlot}
+              disabled={loading || customDuration === null}
+              className="w-full"
+            >
+              Crea Slot Personalizzato
+            </Button>
+          </div>
+
           {success && (
             <div className="text-center text-sm text-emerald-600 font-medium">
               {success}
+            </div>
+          )}
+          {error && (
+            <div className="text-center text-sm text-destructive font-medium">
+              {error}
             </div>
           )}
         </div>
