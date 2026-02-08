@@ -23,6 +23,7 @@ import { NoteEditor } from "./note-editor";
 import { ScheduleDialog } from "@/components/appuntamenti/schedule-dialog";
 import { Trash2, Calendar, X, Zap } from "lucide-react";
 import { REQUEST_STATUS } from "@/lib/request-status";
+import { formatDateTime } from "@/lib/datetime";
 
 interface RequestListProps {
   requests: RequestWithPatient[];
@@ -74,17 +75,6 @@ export function RequestList({ requests, appointments = [] }: RequestListProps) {
       return;
     }
     router.refresh();
-  };
-
-  const formatDateTime = (date: Date) => {
-    return new Intl.DateTimeFormat("it-IT", {
-      weekday: "short",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(date);
   };
 
   // Split by status
@@ -204,7 +194,16 @@ export function RequestList({ requests, appointments = [] }: RequestListProps) {
                         {appointment ? (
                           <div className="flex items-center gap-2 text-sm">
                             <Calendar className="h-4 w-4 text-green-600" />
-                            <span>{formatDateTime(appointment.slot.startTime)}</span>
+                            <span>
+                              {formatDateTime(appointment.slot.startTime, {
+                                weekday: "short",
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
                           </div>
                         ) : (
                           <span className="text-muted-foreground">-</span>
