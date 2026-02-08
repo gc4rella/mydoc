@@ -7,7 +7,6 @@ import {
   requests,
   patients,
   type Appointment,
-  type NewAppointment,
 } from "@/db/schema";
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -15,6 +14,10 @@ import { REQUEST_STATUS } from "@/lib/request-status";
 
 function generateId(): string {
   return crypto.randomUUID();
+}
+
+function toUnixSeconds(date: Date): number {
+  return Math.floor(date.getTime() / 1000);
 }
 
 class AppointmentActionError extends Error {
@@ -75,7 +78,7 @@ function sleep(ms: number): Promise<void> {
 async function withTransientRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
   // Cloudflare D1 can throw transient "busy/locked" errors under concurrent writes.
   // A short retry significantly improves UX without changing semantics.
-  // (The transaction either fails before commit or is rolled back by drizzle.)
+  // (D1 batch operations are atomic, so retries are safe.)
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
@@ -188,66 +191,109 @@ export async function scheduleRequest(requestId: string, slotId: string) {
   const db = getDb();
 
   const now = new Date();
-  const newAppointment: NewAppointment = {
-    id: generateId(),
-    requestId,
-    slotId,
-    note: null,
-    createdAt: now,
-  };
+  const appointmentId = generateId();
+  const createdAt = toUnixSeconds(now);
+  const client = db.$client;
 
   try {
     await withTransientRetry(() =>
-      db.transaction(async (tx) => {
-      const existingAppointment = await tx
+      client.batch([
+        client
+          .prepare(
+            `INSERT INTO appointments (id, request_id, slot_id, note, created_at)
+             SELECT ?, r.id, s.id, NULL, ?
+             FROM requests r, doctor_slots s
+             WHERE r.id = ?
+               AND s.id = ?
+               AND r.stato = ?
+               AND s.is_available = 1
+               AND NOT EXISTS (
+                 SELECT 1 FROM appointments a WHERE a.request_id = r.id
+               )`
+          )
+          .bind(
+            appointmentId,
+            createdAt,
+            requestId,
+            slotId,
+            REQUEST_STATUS.WAITING
+          ),
+        client
+          .prepare(
+            `UPDATE doctor_slots
+             SET is_available = 0
+             WHERE id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM appointments a
+                 WHERE a.id = ?
+                   AND a.slot_id = doctor_slots.id
+               )`
+          )
+          .bind(slotId, appointmentId),
+        client
+          .prepare(
+            `UPDATE requests
+             SET stato = ?
+             WHERE id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM appointments a
+                 WHERE a.id = ?
+                   AND a.request_id = requests.id
+               )`
+          )
+          .bind(REQUEST_STATUS.SCHEDULED, requestId, appointmentId),
+      ])
+    );
+
+    const created = await db
+      .select({ id: appointments.id })
+      .from(appointments)
+      .where(eq(appointments.id, appointmentId))
+      .limit(1);
+
+    if (!created[0]) {
+      const [request] = await db
+        .select({ id: requests.id, stato: requests.stato })
+        .from(requests)
+        .where(eq(requests.id, requestId))
+        .limit(1);
+
+      if (!request) {
+        return { error: "Richiesta non trovata" };
+      }
+
+      const [slot] = await db
+        .select({ id: doctorSlots.id, isAvailable: doctorSlots.isAvailable })
+        .from(doctorSlots)
+        .where(eq(doctorSlots.id, slotId))
+        .limit(1);
+
+      if (!slot) {
+        return { error: "Slot non trovato" };
+      }
+
+      const existingAppointment = await db
         .select({ id: appointments.id })
         .from(appointments)
         .where(eq(appointments.requestId, requestId))
         .limit(1);
 
-      if (existingAppointment.length > 0) {
-        throw new AppointmentActionError("La richiesta ha già un appuntamento");
+      if (existingAppointment[0]) {
+        return { error: "La richiesta ha già un appuntamento" };
       }
 
-      const slot = await tx
-        .select()
-        .from(doctorSlots)
-        .where(eq(doctorSlots.id, slotId))
-        .limit(1);
-
-      if (!slot[0]) {
-        throw new AppointmentActionError("Slot non trovato");
+      if (request.stato !== REQUEST_STATUS.WAITING) {
+        return { error: "La richiesta non è in lista d'attesa" };
       }
 
-      if (!slot[0].isAvailable) {
-        throw new AppointmentActionError("Slot non disponibile");
+      if (!slot.isAvailable) {
+        return { error: "Slot non disponibile" };
       }
 
-      const request = await tx
-        .select()
-        .from(requests)
-        .where(eq(requests.id, requestId))
-        .limit(1);
-
-      if (!request[0]) {
-        throw new AppointmentActionError("Richiesta non trovata");
-      }
-
-      if (request[0].stato !== REQUEST_STATUS.WAITING) {
-        throw new AppointmentActionError("La richiesta non è in lista d'attesa");
-      }
-
-      await tx.insert(appointments).values(newAppointment);
-      await tx
-        .update(doctorSlots)
-        .set({ isAvailable: false })
-        .where(eq(doctorSlots.id, slotId));
-      await tx
-        .update(requests)
-        .set({ stato: REQUEST_STATUS.SCHEDULED })
-        .where(eq(requests.id, requestId));
-      })
-    );
+      return { error: "Impossibile prenotare lo slot selezionato" };
+    }
   } catch (error) {
     if (error instanceof AppointmentActionError) {
       return { error: error.message };
@@ -277,7 +323,7 @@ export async function scheduleRequest(requestId: string, slotId: string) {
   revalidatePath("/slots");
   revalidatePath("/agenda");
 
-  return { success: true, appointmentId: newAppointment.id };
+  return { success: true, appointmentId };
 }
 
 export async function scheduleRequestAtNextAvailable(requestId: string) {
@@ -330,57 +376,109 @@ export async function scheduleRequestAtNextAvailable(requestId: string) {
 
 export async function rescheduleAppointment(appointmentId: string, newSlotId: string) {
   const db = getDb();
+  const client = db.$client;
   let noChanges = false;
 
+  const appointment = await db
+    .select({ id: appointments.id, slotId: appointments.slotId })
+    .from(appointments)
+    .where(eq(appointments.id, appointmentId))
+    .limit(1);
+
+  if (!appointment[0]) {
+    return { error: "Appuntamento non trovato" };
+  }
+
+  const currentSlotId = appointment[0].slotId;
+  if (currentSlotId === newSlotId) {
+    noChanges = true;
+  }
+
   try {
+    if (noChanges) {
+      return { success: true };
+    }
+
+    const newSlot = await db
+      .select({ id: doctorSlots.id, isAvailable: doctorSlots.isAvailable })
+      .from(doctorSlots)
+      .where(eq(doctorSlots.id, newSlotId))
+      .limit(1);
+
+    if (!newSlot[0]) {
+      return { error: "Slot non trovato" };
+    }
+
+    if (!newSlot[0].isAvailable) {
+      return { error: "Slot non disponibile" };
+    }
+
     await withTransientRetry(() =>
-      db.transaction(async (tx) => {
-      const appointment = await tx
-        .select()
-        .from(appointments)
-        .where(eq(appointments.id, appointmentId))
-        .limit(1);
+      client.batch([
+        client
+          .prepare(
+            `UPDATE appointments
+             SET slot_id = ?
+             WHERE id = ?
+               AND slot_id = ?
+               AND EXISTS (
+                 SELECT 1 FROM doctor_slots s WHERE s.id = ? AND s.is_available = 1
+               )`
+          )
+          .bind(newSlotId, appointmentId, currentSlotId, newSlotId),
+        client
+          .prepare(
+            `UPDATE doctor_slots
+             SET is_available = 0
+             WHERE id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM appointments a
+                 WHERE a.id = ?
+                   AND a.slot_id = doctor_slots.id
+               )`
+          )
+          .bind(newSlotId, appointmentId),
+        client
+          .prepare(
+            `UPDATE doctor_slots
+             SET is_available = 1
+             WHERE id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM appointments a
+                 WHERE a.id = ?
+                   AND a.slot_id = ?
+               )`
+          )
+          .bind(currentSlotId, appointmentId, newSlotId),
+      ])
+    );
 
-      if (!appointment[0]) {
-        throw new AppointmentActionError("Appuntamento non trovato");
-      }
+    const updated = await db
+      .select({ slotId: appointments.slotId })
+      .from(appointments)
+      .where(eq(appointments.id, appointmentId))
+      .limit(1);
 
-      const currentSlotId = appointment[0].slotId;
-      if (currentSlotId === newSlotId) {
-        noChanges = true;
-        return;
-      }
+    if (!updated[0]) {
+      return { error: "Appuntamento non trovato" };
+    }
 
-      const newSlot = await tx
-        .select()
+    if (updated[0].slotId !== newSlotId) {
+      const slotCheck = await db
+        .select({ isAvailable: doctorSlots.isAvailable })
         .from(doctorSlots)
         .where(eq(doctorSlots.id, newSlotId))
         .limit(1);
-
-      if (!newSlot[0]) {
-        throw new AppointmentActionError("Slot non trovato");
+      if (!slotCheck[0]) {
+        return { error: "Slot non trovato" };
       }
-
-      if (!newSlot[0].isAvailable) {
-        throw new AppointmentActionError("Slot non disponibile");
+      if (!slotCheck[0].isAvailable) {
+        return { error: "Slot non disponibile" };
       }
-
-      await tx
-        .update(doctorSlots)
-        .set({ isAvailable: false })
-        .where(eq(doctorSlots.id, newSlotId));
-
-      await tx
-        .update(appointments)
-        .set({ slotId: newSlotId })
-        .where(eq(appointments.id, appointmentId));
-
-      await tx
-        .update(doctorSlots)
-        .set({ isAvailable: true })
-        .where(eq(doctorSlots.id, currentSlotId));
-      })
-    );
+      return { error: "Impossibile spostare l'appuntamento. Riprova." };
+    }
   } catch (error) {
     if (error instanceof AppointmentActionError) {
       return { error: error.message };
@@ -419,32 +517,49 @@ export async function rescheduleAppointment(appointmentId: string, newSlotId: st
 
 export async function cancelAppointment(appointmentId: string) {
   const db = getDb();
+  const client = db.$client;
+
+  const appointment = await db
+    .select({ id: appointments.id, requestId: appointments.requestId, slotId: appointments.slotId })
+    .from(appointments)
+    .where(eq(appointments.id, appointmentId))
+    .limit(1);
+
+  if (!appointment[0]) {
+    return { error: "Appuntamento non trovato" };
+  }
 
   try {
     await withTransientRetry(() =>
-      db.transaction(async (tx) => {
-      const appointment = await tx
-        .select()
-        .from(appointments)
-        .where(eq(appointments.id, appointmentId))
-        .limit(1);
-
-      if (!appointment[0]) {
-        throw new AppointmentActionError("Appuntamento non trovato");
-      }
-
-      await tx
-        .update(doctorSlots)
-        .set({ isAvailable: true })
-        .where(eq(doctorSlots.id, appointment[0].slotId));
-
-      await tx
-        .update(requests)
-        .set({ stato: REQUEST_STATUS.WAITING })
-        .where(eq(requests.id, appointment[0].requestId));
-
-      await tx.delete(appointments).where(eq(appointments.id, appointmentId));
-      })
+      client.batch([
+        client
+          .prepare(
+            `UPDATE doctor_slots
+             SET is_available = 1
+             WHERE id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM appointments a
+                 WHERE a.id = ?
+                   AND a.slot_id = doctor_slots.id
+               )`
+          )
+          .bind(appointment[0].slotId, appointmentId),
+        client
+          .prepare(
+            `UPDATE requests
+             SET stato = ?
+             WHERE id = ?
+               AND EXISTS (
+                 SELECT 1
+                 FROM appointments a
+                 WHERE a.id = ?
+                   AND a.request_id = requests.id
+               )`
+          )
+          .bind(REQUEST_STATUS.WAITING, appointment[0].requestId, appointmentId),
+        client.prepare("DELETE FROM appointments WHERE id = ?").bind(appointmentId),
+      ])
     );
   } catch (error) {
     if (error instanceof AppointmentActionError) {
