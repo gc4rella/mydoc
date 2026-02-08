@@ -24,6 +24,41 @@ class AppointmentActionError extends Error {
   }
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    // Some runtimes attach additional info on `cause`.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cause = (error as any).cause as unknown;
+    if (cause instanceof Error) {
+      return `${error.message} (cause: ${cause.message})`;
+    }
+    if (cause) {
+      try {
+        return `${error.message} (cause: ${JSON.stringify(cause)})`;
+      } catch {
+        return `${error.message} (cause: ${String(cause)})`;
+      }
+    }
+    return error.message;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function isBusyOrLockedError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("sqlite_busy") ||
+    message.includes("database is locked") ||
+    message.includes("d1_error") && message.includes("locked") ||
+    message.includes("timeout") ||
+    message.includes("busy")
+  );
+}
+
 function isUniqueConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   return (
@@ -31,6 +66,28 @@ function isUniqueConstraintError(error: unknown): boolean {
     message.includes("constraint failed") ||
     message.includes("sqlite_constraint")
   );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTransientRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  // Cloudflare D1 can throw transient "busy/locked" errors under concurrent writes.
+  // A short retry significantly improves UX without changing semantics.
+  // (The transaction either fails before commit or is rolled back by drizzle.)
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isBusyOrLockedError(error) || attempt === maxRetries) {
+        throw error;
+      }
+      await sleep(50 * (attempt + 1));
+    }
+  }
+  // Unreachable, but TypeScript doesn't know the loop always returns/throws.
+  throw new Error("Retry loop exited unexpectedly");
 }
 
 export type AppointmentWithDetails = Appointment & {
@@ -140,7 +197,8 @@ export async function scheduleRequest(requestId: string, slotId: string) {
   };
 
   try {
-    await db.transaction(async (tx) => {
+    await withTransientRetry(() =>
+      db.transaction(async (tx) => {
       const existingAppointment = await tx
         .select({ id: appointments.id })
         .from(appointments)
@@ -188,13 +246,29 @@ export async function scheduleRequest(requestId: string, slotId: string) {
         .update(requests)
         .set({ stato: REQUEST_STATUS.SCHEDULED })
         .where(eq(requests.id, requestId));
-    });
+      })
+    );
   } catch (error) {
     if (error instanceof AppointmentActionError) {
       return { error: error.message };
     }
     if (isUniqueConstraintError(error)) {
       return { error: "Slot già prenotato o richiesta già assegnata" };
+    }
+    if (isBusyOrLockedError(error)) {
+      return { error: "Database occupato. Riprova tra qualche secondo." };
+    }
+
+    const debugId = generateId().slice(0, 8);
+    console.error(`[scheduleRequest:${debugId}] Failed`, {
+      requestId,
+      slotId,
+      message: getErrorMessage(error),
+      error,
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      return { error: `Errore durante la prenotazione (${debugId}): ${getErrorMessage(error)}` };
     }
     return { error: "Errore durante la prenotazione" };
   }
@@ -259,7 +333,8 @@ export async function rescheduleAppointment(appointmentId: string, newSlotId: st
   let noChanges = false;
 
   try {
-    await db.transaction(async (tx) => {
+    await withTransientRetry(() =>
+      db.transaction(async (tx) => {
       const appointment = await tx
         .select()
         .from(appointments)
@@ -304,13 +379,29 @@ export async function rescheduleAppointment(appointmentId: string, newSlotId: st
         .update(doctorSlots)
         .set({ isAvailable: true })
         .where(eq(doctorSlots.id, currentSlotId));
-    });
+      })
+    );
   } catch (error) {
     if (error instanceof AppointmentActionError) {
       return { error: error.message };
     }
     if (isUniqueConstraintError(error)) {
       return { error: "Slot già prenotato" };
+    }
+    if (isBusyOrLockedError(error)) {
+      return { error: "Database occupato. Riprova tra qualche secondo." };
+    }
+
+    const debugId = generateId().slice(0, 8);
+    console.error(`[rescheduleAppointment:${debugId}] Failed`, {
+      appointmentId,
+      newSlotId,
+      message: getErrorMessage(error),
+      error,
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      return { error: `Errore durante lo spostamento (${debugId}): ${getErrorMessage(error)}` };
     }
     return { error: "Errore durante lo spostamento" };
   }
@@ -330,7 +421,8 @@ export async function cancelAppointment(appointmentId: string) {
   const db = getDb();
 
   try {
-    await db.transaction(async (tx) => {
+    await withTransientRetry(() =>
+      db.transaction(async (tx) => {
       const appointment = await tx
         .select()
         .from(appointments)
@@ -352,10 +444,25 @@ export async function cancelAppointment(appointmentId: string) {
         .where(eq(requests.id, appointment[0].requestId));
 
       await tx.delete(appointments).where(eq(appointments.id, appointmentId));
-    });
+      })
+    );
   } catch (error) {
     if (error instanceof AppointmentActionError) {
       return { error: error.message };
+    }
+    if (isBusyOrLockedError(error)) {
+      return { error: "Database occupato. Riprova tra qualche secondo." };
+    }
+
+    const debugId = generateId().slice(0, 8);
+    console.error(`[cancelAppointment:${debugId}] Failed`, {
+      appointmentId,
+      message: getErrorMessage(error),
+      error,
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      return { error: `Errore durante l'annullamento (${debugId}): ${getErrorMessage(error)}` };
     }
     return { error: "Errore durante l'annullamento" };
   }
