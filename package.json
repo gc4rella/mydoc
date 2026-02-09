@@ -11,6 +11,11 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e:server": "export WRANGLER_PERSIST_TO=\"${WRANGLER_PERSIST_TO:-.wrangler/e2e-state/manual}\" && mkdir -p \"$WRANGLER_PERSIST_TO\" && npx wrangler d1 migrations apply mydoc-db --local --persist-to \"$WRANGLER_PERSIST_TO\" && next dev -p 3001",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:all": "npm test && npm run test:e2e",
+    "test:ci": "npm run lint && npm run test:all",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "npx wrangler d1 migrations apply mydoc-db --local",
     "db:migrate:prod": "npx wrangler d1 migrations apply mydoc-db --remote"
@@ -39,6 +44,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",

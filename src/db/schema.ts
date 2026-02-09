@@ -8,7 +8,7 @@ export const patients = sqliteTable("patients", {
   telefono: text("telefono").notNull(),
   email: text("email"),
   note: text("note"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const requests = sqliteTable("requests", {
@@ -23,21 +23,21 @@ export const requests = sqliteTable("requests", {
   })
     .notNull()
     .default(REQUEST_STATUS.WAITING),
-  desiredDate: integer("desired_date", { mode: "timestamp" }),
+  desiredDate: integer("desired_date", { mode: "timestamp_ms" }),
   note: text("note"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const doctorSlots = sqliteTable(
   "doctor_slots",
   {
     id: text("id").primaryKey(),
-    startTime: integer("start_time", { mode: "timestamp" }).notNull(),
-    endTime: integer("end_time", { mode: "timestamp" }).notNull(),
+    startTime: integer("start_time", { mode: "timestamp_ms" }).notNull(),
+    endTime: integer("end_time", { mode: "timestamp_ms" }).notNull(),
     durationMinutes: integer("duration_minutes").notNull().default(30),
     isAvailable: integer("is_available", { mode: "boolean" }).notNull().default(true),
     note: text("note"),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => ({
     startEndUnique: uniqueIndex("doctor_slots_start_end_unique").on(
@@ -58,7 +58,7 @@ export const appointments = sqliteTable(
       .notNull()
       .references(() => doctorSlots.id),
     note: text("note"),
-    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => ({
     requestUnique: uniqueIndex("appointments_request_id_unique").on(table.requestId),

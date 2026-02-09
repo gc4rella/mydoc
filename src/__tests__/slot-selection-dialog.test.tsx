@@ -13,9 +13,11 @@ vi.mock("next/navigation", () => {
 });
 
 const getAvailableSlotsInRangeMock = vi.fn();
+const getNextAvailableSlotMock = vi.fn();
 vi.mock("@/actions/slots", () => {
   return {
     getAvailableSlotsInRange: (...args: unknown[]) => getAvailableSlotsInRangeMock(...args),
+    getNextAvailableSlot: (...args: unknown[]) => getNextAvailableSlotMock(...args),
   };
 });
 
@@ -43,6 +45,8 @@ describe("SlotSelectionDialog", () => {
 
   beforeEach(() => {
     getAvailableSlotsInRangeMock.mockReset();
+    getNextAvailableSlotMock.mockReset();
+    getNextAvailableSlotMock.mockResolvedValue(undefined);
 
     // Keep real timers (Testing Library waitFor/findByText rely on them) but fix "now".
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

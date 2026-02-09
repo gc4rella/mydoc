@@ -16,10 +16,6 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
-function toUnixSeconds(date: Date): number {
-  return Math.floor(date.getTime() / 1000);
-}
-
 class AppointmentActionError extends Error {
   constructor(message: string) {
     super(message);
@@ -192,7 +188,7 @@ export async function scheduleRequest(requestId: string, slotId: string) {
 
   const now = new Date();
   const appointmentId = generateId();
-  const createdAt = toUnixSeconds(now);
+  const createdAt = now.getTime();
   const client = db.$client;
 
   try {

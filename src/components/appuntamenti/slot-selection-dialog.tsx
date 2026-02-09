@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { DoctorSlot } from "@/db/schema";
 import type { AppointmentWithDetails } from "@/actions/appointments";
-import { getAvailableSlotsInRange } from "@/actions/slots";
+import { getAvailableSlotsInRange, getNextAvailableSlot } from "@/actions/slots";
 import {
   CALENDAR_SLOT_INTERVAL_MINUTES,
   DayColumn,
@@ -169,12 +169,19 @@ export function SlotSelectionDialog({
 
     const defaultView: ViewType = isMobile() ? "day" : "week";
     setView(defaultView);
-    setCurrentDate(now);
     setHoursMode("business");
     setSuccess(false);
     setError(null);
     setSubmittingSlotId(null);
-    void loadSlotsFor(defaultView, now);
+
+    // If availability exists only in the future (e.g. next week), defaulting to "now" makes the
+    // booking dialog look empty and misleading. Jump to the next available slot when possible.
+    void (async () => {
+      const nextSlot = await getNextAvailableSlot();
+      const targetDate = nextSlot?.startTime ?? now;
+      setCurrentDate(targetDate);
+      await loadSlotsFor(defaultView, targetDate);
+    })();
   };
 
   const handlePrev = () => {
