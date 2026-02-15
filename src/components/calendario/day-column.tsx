@@ -9,7 +9,7 @@ import { Clock, Plus, User } from "lucide-react";
 
 const DAY_START_HOUR = 7;
 const DAY_END_HOUR = 21;
-const SLOT_INTERVAL_MINUTES = 30;
+const SLOT_INTERVAL_MINUTES = 15;
 const DEFAULT_ROW_HEIGHT = 30;
 
 export const CALENDAR_DAY_START_HOUR = DAY_START_HOUR;
@@ -24,6 +24,7 @@ interface DayColumnProps {
   onSlotClick?: (slot: DoctorSlot, appointment?: AppointmentWithDetails) => void;
   onAddClick?: (date: Date) => void;
   onCreateRange?: (date: Date, startMinutes: number, endMinutes: number) => void;
+  onTimeClick?: (date: Date, startMinutes: number, endMinutes: number) => void;
   showTimeAxis?: boolean;
   showHeader?: boolean;
   startHour?: number;
@@ -47,6 +48,7 @@ export function DayColumn({
   onSlotClick,
   onAddClick,
   onCreateRange,
+  onTimeClick,
   showTimeAxis = false,
   showHeader = true,
   startHour = DAY_START_HOUR,
@@ -56,12 +58,15 @@ export function DayColumn({
 }: DayColumnProps) {
   const now = new Date();
   const gridRef = useRef<HTMLDivElement>(null);
+  const dragMovedRef = useRef(false);
+  const suppressNextClickRef = useRef(false);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragEnd, setDragEnd] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const dayStartMinutes = startHour * 60;
   const dayEndMinutes = endHour * 60;
+  const rowsPerHour = 60 / SLOT_INTERVAL_MINUTES;
   const totalRows = (dayEndMinutes - dayStartMinutes) / SLOT_INTERVAL_MINUTES;
   const timelineHeight = totalRows * rowHeight;
 
@@ -109,6 +114,7 @@ export function DayColumn({
 
   const pastDay = isPastDay();
   const canCreateRange = Boolean(onCreateRange) && !pastDay;
+  const canCreateSingleSlot = Boolean(onTimeClick) && !pastDay;
 
   const getSnappedMinutes = (clientY: number) => {
     if (!gridRef.current) return dayStartMinutes;
@@ -120,6 +126,7 @@ export function DayColumn({
 
   const startDrag = (clientY: number) => {
     const start = getSnappedMinutes(clientY);
+    dragMovedRef.current = false;
     setDragStart(start);
     setDragEnd(clamp(start + SLOT_INTERVAL_MINUTES, dayStartMinutes, dayEndMinutes));
     setIsDragging(true);
@@ -128,6 +135,9 @@ export function DayColumn({
   const updateDrag = (clientY: number) => {
     if (!isDragging || dragStart === null) return;
     const current = getSnappedMinutes(clientY);
+    if (current !== dragStart) {
+      dragMovedRef.current = true;
+    }
     const normalizedEnd =
       current === dragStart
         ? clamp(current + SLOT_INTERVAL_MINUTES, dayStartMinutes, dayEndMinutes)
@@ -149,13 +159,15 @@ export function DayColumn({
       end = clamp(start + SLOT_INTERVAL_MINUTES, dayStartMinutes, dayEndMinutes);
     }
 
-    if (end > start) {
+    if (dragMovedRef.current && end > start) {
       onCreateRange?.(date, start, end);
+      suppressNextClickRef.current = true;
     }
 
     setIsDragging(false);
     setDragStart(null);
     setDragEnd(null);
+    dragMovedRef.current = false;
   };
 
   const selectionStart =
@@ -174,6 +186,14 @@ export function DayColumn({
           rowHeight
         )
       : 0;
+  const selectionDuration =
+    selectionStart !== null && selectionEnd !== null ? selectionEnd - selectionStart : 0;
+
+  const formatMinutes = (minutes: number) => {
+    const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const mm = String(minutes % 60).padStart(2, "0");
+    return `${hh}:${mm}`;
+  };
 
   return (
     <div
@@ -213,14 +233,15 @@ export function DayColumn({
         className={cn(
           "relative border-t",
           showTimeAxis ? "pl-9" : "",
-          canCreateRange && "cursor-cell"
+          canCreateRange && "cursor-cell",
+          canCreateSingleSlot && "cursor-pointer"
         )}
         style={{ height: timelineHeight }}
       >
         {showTimeAxis &&
           Array.from({ length: endHour - startHour + 1 }, (_, index) => {
             const hour = startHour + index;
-            const top = index * 2 * rowHeight - 6;
+            const top = index * rowsPerHour * rowHeight - 6;
             return (
               <span
                 key={hour}
@@ -234,6 +255,7 @@ export function DayColumn({
 
         <div
           ref={gridRef}
+          data-calendar-grid="true"
           className="absolute inset-0"
           onPointerDown={(event) => {
             if (interactionDisabled) return;
@@ -241,7 +263,9 @@ export function DayColumn({
             const target = event.target as HTMLElement;
             if (target.closest("[data-slot-item='true']")) return;
             startDrag(event.clientY);
-            event.currentTarget.setPointerCapture(event.pointerId);
+            if (typeof event.currentTarget.setPointerCapture === "function") {
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }
           }}
           onPointerMove={(event) => {
             if (interactionDisabled) return;
@@ -263,6 +287,21 @@ export function DayColumn({
             if (!canCreateRange || !isDragging) return;
             finalizeDrag();
           }}
+          onClick={(event) => {
+            if (interactionDisabled) return;
+            if (!canCreateSingleSlot) return;
+            if (suppressNextClickRef.current) {
+              suppressNextClickRef.current = false;
+              return;
+            }
+            const target = event.target as HTMLElement;
+            if (target.closest("[data-slot-item='true']")) return;
+            const start = getSnappedMinutes(event.clientY);
+            const end = clamp(start + SLOT_INTERVAL_MINUTES, dayStartMinutes, dayEndMinutes);
+            if (end > start) {
+              onTimeClick?.(date, start, end);
+            }
+          }}
         >
           {Array.from({ length: (dayEndMinutes - dayStartMinutes) / 60 }, (_, index) => (
             <div
@@ -271,7 +310,7 @@ export function DayColumn({
                 "absolute inset-x-0",
                 index % 2 === 0 ? "bg-muted/15" : "bg-transparent"
               )}
-              style={{ top: index * 2 * rowHeight, height: 2 * rowHeight }}
+              style={{ top: index * rowsPerHour * rowHeight, height: rowsPerHour * rowHeight }}
             />
           ))}
 
@@ -292,7 +331,13 @@ export function DayColumn({
             <div
               className="absolute left-1 right-1 rounded-md border border-primary/50 bg-primary/20"
               style={{ top: selectionTop, height: selectionHeight }}
-            />
+            >
+              {selectionHeight >= rowHeight * 1.2 && (
+                <div className="px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  {formatMinutes(selectionStart)} - {formatMinutes(selectionEnd)} ({selectionDuration} min)
+                </div>
+              )}
+            </div>
           )}
 
           {daySlots.map((slot) => {
@@ -315,6 +360,7 @@ export function DayColumn({
             const isPastSlot = slot.endTime < now;
             const appointment = appointments.get(slot.id);
             const isBooked = !slot.isAvailable && appointment;
+            const isCompactSlot = height < 38;
 
             const isDisabled = interactionDisabled || isPastSlot;
 
@@ -325,7 +371,7 @@ export function DayColumn({
                 data-slot-item="true"
                 data-slot-id={slot.id}
                 className={cn(
-                  "absolute left-1.5 right-1.5 rounded-md border px-1.5 py-1 text-left text-[11px] transition-colors shadow-sm",
+                  "absolute left-1.5 right-1.5 overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] transition-colors shadow-sm",
                   isPastSlot &&
                     "cursor-default border-gray-200 bg-gray-100 text-gray-400",
                   !isPastSlot &&
@@ -346,7 +392,12 @@ export function DayColumn({
                   onSlotClick?.(slot, appointment);
                 }}
               >
-                <div className="flex items-center justify-between gap-1 font-semibold leading-none">
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-1 font-semibold leading-none",
+                    isCompactSlot && "text-[10px]"
+                  )}
+                >
                   <span className="min-w-0 truncate whitespace-nowrap">
                     {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
                   </span>
@@ -356,11 +407,13 @@ export function DayColumn({
                     <Clock className="h-3 w-3 shrink-0 opacity-70" />
                   )}
                 </div>
-                <div className="mt-0.5 truncate leading-none">
-                  {isBooked && appointment
-                    ? `${appointment.patient.cognome}`
-                    : `${slot.durationMinutes} min`}
-                </div>
+                {!isCompactSlot && (
+                  <div className="mt-0.5 truncate leading-none">
+                    {isBooked && appointment
+                      ? `${appointment.patient.cognome}`
+                      : `${slot.durationMinutes} min`}
+                  </div>
+                )}
               </button>
             );
           })}

@@ -49,6 +49,9 @@ export function RescheduleDialog({ appointment, trigger }: RescheduleDialogProps
       }
       emptyState="Nessun altro slot disponibile."
       successMessage="Appuntamento spostato!"
+      confirmSelectionTitle="Confermare nuovo slot?"
+      confirmSelectionDescription="Lo slot attuale sarà sostituito con quello selezionato."
+      confirmSelectionLabel="Conferma spostamento"
       onSelectSlot={(slot) => rescheduleAppointment(appointment.id, slot.id)}
     />
   );

@@ -11,6 +11,7 @@ import {
 } from "@/components/calendario/day-column";
 import { MonthGrid } from "@/components/calendario/month-grid";
 import { Button } from "@/components/ui/button";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { formatDateTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 type ViewType = "day" | "week" | "month";
@@ -33,6 +35,9 @@ interface SlotSelectionDialogProps {
   infoPanel: ReactNode;
   emptyState: ReactNode;
   successMessage: string;
+  confirmSelectionTitle?: string;
+  confirmSelectionDescription?: string;
+  confirmSelectionLabel?: string;
   onSelectSlot: (slot: DoctorSlot) => Promise<{ error?: string } | void>;
 }
 
@@ -76,6 +81,9 @@ export function SlotSelectionDialog({
   infoPanel,
   emptyState,
   successMessage,
+  confirmSelectionTitle = "Confermare slot?",
+  confirmSelectionDescription = "Verifica i dettagli dello slot selezionato prima di confermare.",
+  confirmSelectionLabel = "Conferma slot",
   onSelectSlot,
 }: SlotSelectionDialogProps) {
   const router = useRouter();
@@ -86,6 +94,7 @@ export function SlotSelectionDialog({
   const [availableSlots, setAvailableSlots] = useState<DoctorSlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [submittingSlotId, setSubmittingSlotId] = useState<string | null>(null);
+  const [slotToConfirm, setSlotToConfirm] = useState<DoctorSlot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const requestCounter = useRef(0);
@@ -161,6 +170,7 @@ export function SlotSelectionDialog({
     if (!nextOpen) {
       requestCounter.current += 1;
       setSubmittingSlotId(null);
+      setSlotToConfirm(null);
       return;
     }
 
@@ -173,6 +183,7 @@ export function SlotSelectionDialog({
     setSuccess(false);
     setError(null);
     setSubmittingSlotId(null);
+    setSlotToConfirm(null);
 
     // If availability exists only in the future (e.g. next week), defaulting to "now" makes the
     // booking dialog look empty and misleading. Jump to the next available slot when possible.
@@ -242,22 +253,31 @@ export function SlotSelectionDialog({
     try {
       const result = await onSelectSlot(slot);
       if (result?.error) {
-        setError(result.error);
         setSubmittingSlotId(null);
-        return;
+        return { error: result.error };
       }
 
       setSuccess(true);
+      setSlotToConfirm(null);
       setTimeout(() => {
         setOpen(false);
         setSuccess(false);
         setSubmittingSlotId(null);
         router.refresh();
       }, 1000);
+      return { success: true };
     } catch {
-      setError("Errore imprevisto durante la prenotazione. Riprova.");
+      const message = "Errore imprevisto durante la prenotazione. Riprova.";
       setSubmittingSlotId(null);
+      return { error: message };
     }
+  };
+
+  const handleSlotClick = (slot: DoctorSlot) => {
+    if (submittingSlotId) return;
+    if (loading) return;
+    setError(null);
+    setSlotToConfirm(slot);
   };
 
   const formatTitle = () => {
@@ -315,6 +335,7 @@ export function SlotSelectionDialog({
     () => Array.from({ length: endHour - startHour }, (_, index) => startHour + index),
     [endHour, startHour]
   );
+  const rowsPerHour = 60 / CALENDAR_SLOT_INTERVAL_MINUTES;
 
   const timelineHeight = useMemo(() => {
     const totalRows = ((endHour - startHour) * 60) / CALENDAR_SLOT_INTERVAL_MINUTES;
@@ -350,7 +371,7 @@ export function SlotSelectionDialog({
         <DialogHeader className="px-4 sm:px-6 pt-5 pb-0">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            Seleziona uno slot dal calendario per confermare la prenotazione.
+            Seleziona uno slot dal calendario e conferma nella finestra di riepilogo.
           </DialogDescription>
         </DialogHeader>
 
@@ -435,7 +456,7 @@ export function SlotSelectionDialog({
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Seleziona uno slot dal calendario per confermare la prenotazione.
+                  Seleziona uno slot dal calendario, poi conferma nella finestra dedicata.
                 </p>
               </div>
             </div>
@@ -513,7 +534,7 @@ export function SlotSelectionDialog({
                               <span
                                 key={hour}
                                 className="absolute left-1 text-[10px] text-muted-foreground"
-                                style={{ top: index * 2 * BOOKING_ROW_HEIGHT - 6 }}
+                                style={{ top: index * rowsPerHour * BOOKING_ROW_HEIGHT - 6 }}
                               >
                                 {String(hour).padStart(2, "0")}:00
                               </span>
@@ -526,7 +547,7 @@ export function SlotSelectionDialog({
                               slots={availableSlots}
                               appointments={emptyAppointments}
                               onSlotClick={(slot) => {
-                                void handleSelect(slot);
+                                handleSlotClick(slot);
                               }}
                               showHeader={false}
                               startHour={startHour}
@@ -558,6 +579,49 @@ export function SlotSelectionDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
       </DialogContent>
+
+      <ConfirmationDialog
+        open={Boolean(slotToConfirm)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setSlotToConfirm(null);
+        }}
+        title={confirmSelectionTitle}
+        description={confirmSelectionDescription}
+        confirmLabel={confirmSelectionLabel}
+        loadingLabel="Conferma in corso..."
+        onConfirm={() => {
+          if (!slotToConfirm) return;
+          return handleSelect(slotToConfirm);
+        }}
+      >
+        {slotToConfirm && (
+          <div className="rounded-lg border p-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Slot selezionato
+            </div>
+            <div className="mt-2 font-medium">
+              {formatDateTime(slotToConfirm.startTime, {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+                year: "numeric",
+              })}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {formatDateTime(slotToConfirm.startTime, {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}{" "}
+              -{" "}
+              {formatDateTime(slotToConfirm.endTime, {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}{" "}
+              ({slotToConfirm.durationMinutes} min)
+            </div>
+          </div>
+        )}
+      </ConfirmationDialog>
     </Dialog>
   );
 }

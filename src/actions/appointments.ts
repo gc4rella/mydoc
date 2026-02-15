@@ -108,6 +108,17 @@ export type AppointmentWithDetails = Appointment & {
   };
 };
 
+export type AutoAssignProposal = {
+  requestId: string;
+  fromDate: Date;
+  slot: {
+    id: string;
+    startTime: Date;
+    endTime: Date;
+    durationMinutes: number;
+  };
+};
+
 export async function getAppointments(): Promise<AppointmentWithDetails[]> {
   const db = getDb();
 
@@ -322,7 +333,9 @@ export async function scheduleRequest(requestId: string, slotId: string) {
   return { success: true, appointmentId };
 }
 
-export async function scheduleRequestAtNextAvailable(requestId: string) {
+export async function getAutoAssignProposal(
+  requestId: string
+): Promise<{ error: string } | AutoAssignProposal> {
   const db = getDb();
 
   const request = await db
@@ -352,6 +365,9 @@ export async function scheduleRequestAtNextAvailable(requestId: string) {
   const nextSlot = await db
     .select({
       id: doctorSlots.id,
+      startTime: doctorSlots.startTime,
+      endTime: doctorSlots.endTime,
+      durationMinutes: doctorSlots.durationMinutes,
     })
     .from(doctorSlots)
     .where(
@@ -367,7 +383,20 @@ export async function scheduleRequestAtNextAvailable(requestId: string) {
     return { error: "Nessuno slot disponibile" };
   }
 
-  return scheduleRequest(requestId, nextSlot[0].id);
+  return {
+    requestId,
+    fromDate,
+    slot: nextSlot[0],
+  };
+}
+
+export async function scheduleRequestAtNextAvailable(requestId: string) {
+  const proposal = await getAutoAssignProposal(requestId);
+  if ("error" in proposal) {
+    return proposal;
+  }
+
+  return scheduleRequest(requestId, proposal.slot.id);
 }
 
 export async function rescheduleAppointment(appointmentId: string, newSlotId: string) {

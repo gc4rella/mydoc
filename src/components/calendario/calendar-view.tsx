@@ -13,7 +13,7 @@ import {
 } from "./day-column";
 import { MonthGrid } from "./month-grid";
 import { SlotDetailDialog } from "./slot-detail-dialog";
-import { AddSlotsDialog } from "./add-slots-dialog";
+import { AddSlotsDialog, type AddSlotsMode } from "./add-slots-dialog";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
@@ -80,6 +80,7 @@ export function CalendarView() {
   // Add dialog state
   const [addDate, setAddDate] = useState<Date | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [addMode, setAddMode] = useState<AddSlotsMode>("bulk");
   const [addRange, setAddRange] = useState<{ startMinutes: number; endMinutes: number } | null>(
     null
   );
@@ -182,12 +183,21 @@ export function CalendarView() {
   };
 
   const handleAddClick = (date: Date) => {
+    setAddMode("bulk");
     setAddRange(null);
     setAddDate(date);
     setAddOpen(true);
   };
 
+  const handleTimeClick = (date: Date, startMinutes: number, endMinutes: number) => {
+    setAddMode("single");
+    setAddRange({ startMinutes, endMinutes });
+    setAddDate(date);
+    setAddOpen(true);
+  };
+
   const handleCreateRange = (date: Date, startMinutes: number, endMinutes: number) => {
+    setAddMode("range");
     setAddRange({ startMinutes, endMinutes });
     setAddDate(date);
     setAddOpen(true);
@@ -248,6 +258,7 @@ export function CalendarView() {
     () => Array.from({ length: endHour - startHour }, (_, index) => startHour + index),
     [endHour, startHour]
   );
+  const rowsPerHour = 60 / CALENDAR_SLOT_INTERVAL_MINUTES;
 
   const timelineHeight = useMemo(() => {
     const totalRows = ((endHour - startHour) * 60) / CALENDAR_SLOT_INTERVAL_MINUTES;
@@ -338,7 +349,9 @@ export function CalendarView() {
           </div>
           {(view === "day" || view === "week") && (
             <p className="text-xs text-muted-foreground mt-3">
-              Trascina sul calendario per creare uno slot personalizzato.
+              Clicca una fascia per creare subito 1 slot singolo. Trascina per selezionare un
+              intervallo e poi scegli se creare 1 slot unico o piu slot in base alla durata.
+              Usa il tasto + per preset mattina/pomeriggio.
             </p>
           )}
         </CardHeader>
@@ -433,7 +446,7 @@ export function CalendarView() {
                       <span
                         key={hour}
                         className="absolute left-1 text-[10px] text-muted-foreground"
-                        style={{ top: index * 2 * CALENDAR_ROW_HEIGHT - 6 }}
+                        style={{ top: index * rowsPerHour * CALENDAR_ROW_HEIGHT - 6 }}
                       >
                         {String(hour).padStart(2, "0")}:00
                       </span>
@@ -447,6 +460,7 @@ export function CalendarView() {
                       appointments={appointments}
                       onSlotClick={handleSlotClick}
                       onCreateRange={handleCreateRange}
+                      onTimeClick={handleTimeClick}
                       showHeader={false}
                       startHour={startHour}
                       endHour={endHour}
@@ -473,11 +487,13 @@ export function CalendarView() {
         <AddSlotsDialog
           date={addDate}
           open={addOpen}
+          mode={addMode}
           onOpenChange={(open) => {
             setAddOpen(open);
             if (!open) {
               setAddDate(null);
               setAddRange(null);
+              setAddMode("bulk");
             }
           }}
           onCreated={loadData}

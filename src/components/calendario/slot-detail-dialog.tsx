@@ -6,6 +6,7 @@ import type { AppointmentWithDetails } from "@/actions/appointments";
 import { deleteDoctorSlot } from "@/actions/slots";
 import { cancelAppointment } from "@/actions/appointments";
 import { Button } from "@/components/ui/button";
+import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,10 @@ export function SlotDetailDialog({
   onUpdate,
 }: SlotDetailDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"delete-slot" | "cancel-appointment" | null>(
+    null
+  );
 
   if (!slot) return null;
 
@@ -51,26 +56,36 @@ export function SlotDetailDialog({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Eliminare questo slot?")) return;
     setLoading(true);
+    setActionError(null);
     const result = await deleteDoctorSlot(slot.id);
     if (result.error) {
-      alert(result.error);
-    } else {
-      onUpdate();
-      onOpenChange(false);
+      setActionError(result.error);
+      setLoading(false);
+      return result;
     }
+
+    onUpdate();
+    onOpenChange(false);
     setLoading(false);
+    return { success: true };
   };
 
   const handleCancel = async () => {
     if (!appointment) return;
-    if (!confirm("Annullare l'appuntamento? Il paziente tornera in lista d'attesa.")) return;
     setLoading(true);
-    await cancelAppointment(appointment.id);
+    setActionError(null);
+    const result = await cancelAppointment(appointment.id);
+    if (result.error) {
+      setActionError(result.error);
+      setLoading(false);
+      return result;
+    }
+
     onUpdate();
     onOpenChange(false);
     setLoading(false);
+    return { success: true };
   };
 
   const isBooked = !slot.isAvailable && appointment;
@@ -117,7 +132,7 @@ export function SlotDetailDialog({
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={handleDelete}
+                onClick={() => setConfirmAction("delete-slot")}
                 disabled={loading}
                 className="flex-1"
               >
@@ -138,7 +153,7 @@ export function SlotDetailDialog({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleCancel}
+                  onClick={() => setConfirmAction("cancel-appointment")}
                   disabled={loading}
                   className="flex-1"
                 >
@@ -148,8 +163,35 @@ export function SlotDetailDialog({
               </>
             ) : null}
           </div>
+          {actionError && <p className="text-sm text-destructive">{actionError}</p>}
         </div>
       </DialogContent>
+
+      <ConfirmationDialog
+        open={confirmAction === "delete-slot"}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null);
+        }}
+        title="Eliminare slot?"
+        description="Lo slot verrà eliminato definitivamente."
+        confirmLabel="Elimina slot"
+        confirmVariant="destructive"
+        loadingLabel="Eliminazione..."
+        onConfirm={handleDelete}
+      />
+
+      <ConfirmationDialog
+        open={confirmAction === "cancel-appointment"}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null);
+        }}
+        title="Annullare appuntamento?"
+        description="Il paziente tornerà in lista d'attesa."
+        confirmLabel="Annulla appuntamento"
+        confirmVariant="destructive"
+        loadingLabel="Annullamento..."
+        onConfirm={handleCancel}
+      />
     </Dialog>
   );
 }

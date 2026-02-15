@@ -179,6 +179,7 @@ describe("SlotSelectionDialog", () => {
     await screen.findByText("09:00 - 09:30");
 
     fireEvent.click(screen.getByRole("button", { name: /09:00 - 09:30/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Conferma slot/i }));
 
     await screen.findByText(/Errore imprevisto durante la prenotazione/i);
     await waitFor(() =>
@@ -206,13 +207,14 @@ describe("SlotSelectionDialog", () => {
     await screen.findByText("09:00 - 09:30");
 
     fireEvent.click(screen.getByRole("button", { name: /09:00 - 09:30/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Conferma slot/i }));
     await screen.findByText("Slot non disponibile");
 
     await waitFor(() =>
       expect(screen.queryByText("Prenotazione in corso...")).toBeNull()
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /09:00 - 09:30/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Conferma slot/i }));
     await waitFor(() => expect(onSelectSlot).toHaveBeenCalledTimes(2));
   });
 
@@ -236,6 +238,7 @@ describe("SlotSelectionDialog", () => {
     await screen.findByText("09:00 - 09:30");
 
     fireEvent.click(screen.getByRole("button", { name: /09:00 - 09:30/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Conferma slot/i }));
     await waitFor(() => expect(onSelectSlot).toHaveBeenCalledTimes(1));
     await screen.findByText("Prenotazione in corso...");
 

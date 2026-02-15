@@ -144,7 +144,12 @@ export function WeekView() {
         <AddSlotsDialog
           date={addDate}
           open={addOpen}
-          onOpenChange={setAddOpen}
+          onOpenChange={(open) => {
+            setAddOpen(open);
+            if (!open) {
+              setAddDate(null);
+            }
+          }}
           onCreated={loadData}
         />
       )}

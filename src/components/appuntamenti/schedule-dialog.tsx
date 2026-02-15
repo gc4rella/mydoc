@@ -44,6 +44,9 @@ export function ScheduleDialog({ request }: ScheduleDialogProps) {
         </>
       }
       successMessage="Appuntamento prenotato!"
+      confirmSelectionTitle="Confermare prenotazione?"
+      confirmSelectionDescription="Controlla lo slot selezionato e conferma la prenotazione."
+      confirmSelectionLabel="Prenota slot"
       onSelectSlot={(slot) => scheduleRequest(request.id, slot.id)}
     />
   );

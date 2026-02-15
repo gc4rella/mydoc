@@ -69,7 +69,9 @@ async function createCustomSlotWithRetry(addSlotDialog: import("@playwright/test
     await times.nth(0).fill(minutesToTimeValue(startMin));
     await times.nth(1).fill(minutesToTimeValue(endMin));
 
-    await addSlotDialog.getByRole("button", { name: "Crea Slot Personalizzato" }).click();
+    await addSlotDialog
+      .getByRole("button", { name: /Crea slot automatici|Crea Slot Personalizzato/i })
+      .click();
 
     const result = await Promise.race([
       addSlotDialog.waitFor({ state: "hidden" }).then(() => "closed" as const),

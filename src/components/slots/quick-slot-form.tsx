@@ -198,6 +198,7 @@ export function QuickSlotForm() {
                   <Label className="text-xs">Inizio</Label>
                   <Input
                     type="time"
+                    step={15 * 60}
                     value={customStart}
                     onChange={(e) => setCustomStart(e.target.value)}
                     disabled={loading}
@@ -207,6 +208,7 @@ export function QuickSlotForm() {
                   <Label className="text-xs">Fine</Label>
                   <Input
                     type="time"
+                    step={15 * 60}
                     value={customEnd}
                     onChange={(e) => setCustomEnd(e.target.value)}
                     disabled={loading}
