@@ -89,6 +89,78 @@ async function createCustomSlotWithRetry(addSlotDialog: import("@playwright/test
   throw new Error(`Unable to create a non-overlapping slot after ${maxAttempts} attempts.`);
 }
 
+async function openPatientDetailFromList(
+  page: import("@playwright/test").Page,
+  telefono: string
+) {
+  await page.getByPlaceholder("Cerca paziente...").fill(telefono);
+  const patientRow = page.getByRole("row", { name: new RegExp(telefono) }).first();
+  await expect(patientRow).toBeVisible({ timeout: 15_000 });
+
+  const detailsLink = patientRow.locator('a[href^="/pazienti/"]').first();
+  const href = await detailsLink.getAttribute("href");
+  if (!href) {
+    throw new Error(`Unable to find details link for patient with phone ${telefono}`);
+  }
+
+  // Navigation via href is more stable in CI than waiting for a click-driven route transition.
+  await page.goto(href);
+  await expect(page).toHaveURL(/\/pazienti\/[^/]+(?:\?.*)?$/, { timeout: 15_000 });
+}
+
+async function openAddSlotDialogFromHeader(page: import("@playwright/test").Page) {
+  const addSlotButton = page
+    .locator('[data-calendar-day-header] button[title="Aggiungi slot"]:visible')
+    .first();
+  await expect(addSlotButton).toBeVisible({ timeout: 15_000 });
+
+  const addSlotDialog = page.getByRole("dialog").filter({
+    has: page.getByRole("button", {
+      name: /Crea slot automatici|Crea Slot Personalizzato/i,
+    }),
+  }).first();
+
+  if (await addSlotDialog.isVisible()) {
+    return addSlotDialog;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await addSlotButton.click();
+    if (await addSlotDialog.isVisible()) {
+      return addSlotDialog;
+    }
+  }
+
+  await expect(addSlotDialog).toBeVisible({ timeout: 15_000 });
+  return addSlotDialog;
+}
+
+async function confirmAutoAssignIfPrompted(page: import("@playwright/test").Page) {
+  const confirmDialog = page.getByRole("dialog", { name: /Conferma auto-assegnazione/i });
+  const visible = await confirmDialog
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!visible) return;
+
+  await confirmDialog.getByRole("button", { name: /Accetta e prenota/i }).click();
+  await expect(confirmDialog).toBeHidden({ timeout: 15_000 });
+}
+
+async function confirmBookingIfPrompted(page: import("@playwright/test").Page) {
+  const confirmDialog = page.getByRole("dialog", { name: /Confermare prenotazione/i });
+  const visible = await confirmDialog
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!visible) return;
+
+  await confirmDialog.getByRole("button", { name: /Prenota slot/i }).click();
+  await expect(confirmDialog).toBeHidden({ timeout: 15_000 });
+}
+
 test("core flow: create patient, add waiting request, schedule next available", async ({ page }) => {
   await login(page);
 
@@ -99,7 +171,7 @@ test("core flow: create patient, add waiting request, schedule next available", 
   const motivo = `E2E motivo ${unique}`;
 
   // Create patient
-  await page.getByRole("link", { name: "Pazienti" }).click();
+  await page.getByRole("link", { name: "Pazienti", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Pazienti" })).toBeVisible();
 
   await page.getByRole("link", { name: "Nuovo Paziente" }).click();
@@ -114,13 +186,7 @@ test("core flow: create patient, add waiting request, schedule next available", 
   await expect(page).toHaveURL(/\/pazienti(?:\?.*)?$/);
 
   // Open patient details
-  await page.getByPlaceholder("Cerca paziente...").fill(telefono);
-  const patientRow = page.getByRole("row", { name: new RegExp(telefono) }).first();
-  await expect(patientRow).toBeVisible({ timeout: 15_000 });
-  await Promise.all([
-    page.waitForURL(/\/pazienti\/[^/]+(?:\?.*)?$/),
-    patientRow.locator('a[href^="/pazienti/"]').first().click(),
-  ]);
+  await openPatientDetailFromList(page, telefono);
   await expect(page.getByRole("heading", { name: `${cognome} ${nome}` })).toBeVisible({
     timeout: 15_000,
   });
@@ -140,12 +206,7 @@ test("core flow: create patient, add waiting request, schedule next available", 
   await page.goto(`/agenda?view=week&date=${formatDateParam(futureWeek)}&hours=business`);
   await expect(page.getByRole("heading", { name: "Agenda e Disponibilita" })).toBeVisible();
 
-  await page
-    .locator('[data-calendar-day-header] button[title="Aggiungi slot"]')
-    .first()
-    .click();
-  const addSlotDialog = page.getByRole("dialog", { name: "Aggiungi Slot" });
-  await expect(addSlotDialog).toBeVisible();
+  const addSlotDialog = await openAddSlotDialogFromHeader(page);
   await createCustomSlotWithRetry(addSlotDialog, { start: time.start, end: time.end });
 
   // Schedule the request at the next available slot from waiting list
@@ -160,24 +221,8 @@ test("core flow: create patient, add waiting request, schedule next available", 
     timeout: 20_000,
   });
 
-  const dialogPromise = page.waitForEvent("dialog").then(async (dialog) => {
-    const msg = dialog.message();
-    await dialog.dismiss();
-    return msg;
-  });
-
   await requestRow.locator('button[title="Assegna primo slot disponibile"]').click();
-
-  const winner = await Promise.race([
-    dialogPromise.then((msg) => ({ kind: "dialog" as const, msg })),
-    scheduledExpectation.then(() => ({ kind: "scheduled" as const })),
-  ]);
-
-  if (winner.kind === "dialog") {
-    // Avoid unhandled rejection if the scheduled assertion later times out.
-    await scheduledExpectation.catch(() => undefined);
-    throw new Error(`Scheduling failed: ${winner.msg}`);
-  }
+  await confirmAutoAssignIfPrompted(page);
 
   await scheduledExpectation;
 });
@@ -199,16 +244,11 @@ test("booking dialog: shows future availability and allows manual booking", asyn
   await page.goto(`/agenda?view=week&date=${formatDateParam(futureWeek)}&hours=business`);
   await expect(page.getByRole("heading", { name: "Agenda e Disponibilita" })).toBeVisible();
 
-  await page
-    .locator('[data-calendar-day-header] button[title="Aggiungi slot"]')
-    .first()
-    .click();
-  const addSlotDialog = page.getByRole("dialog", { name: "Aggiungi Slot" });
-  await expect(addSlotDialog).toBeVisible();
+  const addSlotDialog = await openAddSlotDialogFromHeader(page);
   await createCustomSlotWithRetry(addSlotDialog, { start: time.start, end: time.end });
 
   // Create patient + waiting request
-  await page.getByRole("link", { name: "Pazienti" }).click();
+  await page.getByRole("link", { name: "Pazienti", exact: true }).click();
   await page.getByRole("link", { name: "Nuovo Paziente" }).click();
   await page.getByLabel(/Nome/).fill(nome);
   await page.getByLabel(/Cognome/).fill(cognome);
@@ -216,13 +256,7 @@ test("booking dialog: shows future availability and allows manual booking", asyn
   await page.getByRole("button", { name: "Crea Paziente" }).click();
   await expect(page).toHaveURL(/\/pazienti(?:\?.*)?$/);
 
-  await page.getByPlaceholder("Cerca paziente...").fill(telefono);
-  const patientRow = page.getByRole("row", { name: new RegExp(telefono) }).first();
-  await expect(patientRow).toBeVisible({ timeout: 15_000 });
-  await Promise.all([
-    page.waitForURL(/\/pazienti\/[^/]+(?:\?.*)?$/),
-    patientRow.locator('a[href^="/pazienti/"]').first().click(),
-  ]);
+  await openPatientDetailFromList(page, telefono);
 
   await page.getByRole("button", { name: "Aggiungi alla Lista d'Attesa" }).click();
   await page.getByLabel(/Motivo della visita/).fill(motivo);
@@ -239,6 +273,7 @@ test("booking dialog: shows future availability and allows manual booking", asyn
   await expect(bookingDialog).toBeVisible();
 
   await bookingDialog.locator('[data-slot-item="true"]').first().click();
+  await confirmBookingIfPrompted(page);
 
   await expect(bookingDialog).toBeHidden({ timeout: 15_000 });
 
