@@ -3,6 +3,7 @@ import { Header } from "@/components/layout/header";
 import { RequestList } from "@/components/richieste/request-list";
 import { RequestForm } from "@/components/richieste/request-form";
 import { StatusFilter } from "@/components/richieste/status-filter";
+import { UrgencyFilter } from "@/components/richieste/urgency-filter";
 import { WaitingSearch } from "@/components/richieste/waiting-search";
 import { getRequests } from "@/actions/richieste";
 import { getPatients } from "@/actions/pazienti";
@@ -11,12 +12,20 @@ import { getAppointments } from "@/actions/appointments";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ stato?: string; q?: string }>;
+  searchParams: Promise<{ stato?: string; q?: string; urgenza?: string }>;
 }
 
-async function RequestListLoader({ stato, q }: { stato?: string; q?: string }) {
+async function RequestListLoader({
+  stato,
+  q,
+  urgenza,
+}: {
+  stato?: string;
+  q?: string;
+  urgenza?: string;
+}) {
   const [requests, patients, appointments] = await Promise.all([
-    getRequests(stato, q),
+    getRequests(stato, q, urgenza),
     getPatients(),
     getAppointments(),
   ]);
@@ -32,17 +41,18 @@ async function RequestListLoader({ stato, q }: { stato?: string; q?: string }) {
 }
 
 export default async function RichiestePage({ searchParams }: PageProps) {
-  const { stato, q } = await searchParams;
+  const { stato, q, urgenza } = await searchParams;
 
   return (
     <div>
       <Header title="Lista d'Attesa">
         <WaitingSearch />
+        <UrgencyFilter />
         <StatusFilter />
       </Header>
       <div className="p-6">
         <Suspense fallback={<div>Caricamento...</div>}>
-          <RequestListLoader stato={stato} q={q} />
+          <RequestListLoader stato={stato} q={q} urgenza={urgenza} />
         </Suspense>
       </div>
     </div>

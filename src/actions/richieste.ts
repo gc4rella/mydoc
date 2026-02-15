@@ -26,10 +26,17 @@ export type RequestWithPatient = Request & {
 
 // Priority order for sorting
 const urgenzaOrder = { alta: 0, media: 1, bassa: 2 };
+const URGENZA_VALUES = ["bassa", "media", "alta"] as const;
+
+function isUrgenzaFilter(value?: string): value is (typeof URGENZA_VALUES)[number] {
+  if (!value) return false;
+  return URGENZA_VALUES.includes(value as (typeof URGENZA_VALUES)[number]);
+}
 
 export async function getRequests(
   statoFilter?: string,
-  searchQuery?: string
+  searchQuery?: string,
+  urgenzaFilter?: string
 ): Promise<RequestWithPatient[]> {
   const db = getDb();
 
@@ -58,6 +65,9 @@ export async function getRequests(
 
   if (statoFilter && isRequestStatus(statoFilter)) {
     results = results.filter((r) => r.stato === statoFilter);
+  }
+  if (isUrgenzaFilter(urgenzaFilter)) {
+    results = results.filter((r) => r.urgenza === urgenzaFilter);
   }
 
   const normalizedQuery = searchQuery?.trim().toLowerCase();

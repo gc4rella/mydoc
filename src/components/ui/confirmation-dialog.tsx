@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type ConfirmResult = { error?: string } | void;
+type ConfirmResult = { error?: string; success?: boolean } | void;
 
 interface ConfirmationDialogProps {
   open: boolean;
