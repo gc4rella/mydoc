@@ -5,10 +5,8 @@ import { doctorSlots, appointments, type DoctorSlot, type NewDoctorSlot } from "
 import { eq, and, gte, lte, asc, lt, gt } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { generateSlotRanges } from "@/lib/slot-utils";
-
-function generateId(): string {
-  return crypto.randomUUID();
-}
+import { generateId } from "@/lib/id";
+import { slotSchema, slotBlockSchema } from "@/lib/validations";
 
 export async function getDoctorSlots(filters?: {
   startDate?: Date;
@@ -49,14 +47,18 @@ export async function createDoctorSlot(
   _prevState: { error?: string } | undefined,
   formData: FormData
 ) {
-  const startTimeStr = formData.get("startTime") as string;
-  const endTimeStr = formData.get("endTime") as string;
-  const durationMinutes = parseInt(formData.get("durationMinutes") as string) || 30;
-  const note = formData.get("note") as string;
+  const validated = slotSchema.safeParse({
+    startTime: formData.get("startTime"),
+    endTime: formData.get("endTime"),
+    durationMinutes: formData.get("durationMinutes"),
+    note: formData.get("note") ?? "",
+  });
 
-  if (!startTimeStr || !endTimeStr) {
-    return { error: "Orario di inizio e fine sono obbligatori" };
+  if (!validated.success) {
+    return { error: validated.error.issues[0].message };
   }
+
+  const { startTime: startTimeStr, endTime: endTimeStr, durationMinutes, note = "" } = validated.data;
 
   const startTime = new Date(startTimeStr);
   const endTime = new Date(endTimeStr);
@@ -87,7 +89,7 @@ export async function createDoctorSlot(
     endTime,
     durationMinutes,
     isAvailable: true,
-    note: note?.trim() || null,
+    note: note.trim() || null,
     createdAt: new Date(),
   };
 
@@ -110,18 +112,21 @@ export async function createDoctorSlotsBlock(
   _prevState: { error?: string } | undefined,
   formData: FormData
 ) {
-  const dateStr = formData.get("date") as string;
-  const startHour = parseInt(formData.get("startHour") as string);
-  const startMinute = parseInt(formData.get("startMinute") as string) || 0;
-  const endHour = parseInt(formData.get("endHour") as string);
-  const endMinute = parseInt(formData.get("endMinute") as string) || 0;
-  const slotDuration = parseInt(formData.get("slotDuration") as string) || 30;
+  const validated = slotBlockSchema.safeParse({
+    date: formData.get("date"),
+    startHour: formData.get("startHour"),
+    startMinute: formData.get("startMinute") ?? 0,
+    endHour: formData.get("endHour"),
+    endMinute: formData.get("endMinute") ?? 0,
+    slotDuration: formData.get("slotDuration") ?? 30,
+  });
 
-  if (!dateStr || isNaN(startHour) || isNaN(endHour)) {
-    return { error: "Data e orari sono obbligatori" };
+  if (!validated.success) {
+    return { error: validated.error.issues[0].message };
   }
 
-  // Use utility function to generate slots with correct timezone handling
+  const { date: dateStr, startHour, startMinute, endHour, endMinute, slotDuration } = validated.data;
+
   const slotRanges = generateSlotRanges(
     dateStr,
     startHour,

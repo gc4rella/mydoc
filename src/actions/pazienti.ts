@@ -5,10 +5,8 @@ import { patients, requests, type Patient, type NewPatient } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-
-function generateId(): string {
-  return crypto.randomUUID();
-}
+import { generateId } from "@/lib/id";
+import { patientSchema } from "@/lib/validations";
 
 export async function getPatients(search?: string): Promise<Patient[]> {
   const db = getDb();
@@ -65,20 +63,19 @@ export async function createPatient(
   _prevState: { error?: string } | undefined,
   formData: FormData
 ) {
-  const nome = formData.get("nome") as string;
-  const cognome = formData.get("cognome") as string;
-  const telefono = formData.get("telefono") as string;
-  const email = (formData.get("email") as string) || null;
-  const note = (formData.get("note") as string) || null;
+  const validated = patientSchema.safeParse({
+    nome: formData.get("nome"),
+    cognome: formData.get("cognome"),
+    telefono: formData.get("telefono"),
+    email: formData.get("email") ?? "",
+    note: formData.get("note") ?? "",
+  });
 
-  if (!nome || !cognome || !telefono) {
-    return { error: "Nome, cognome e telefono sono obbligatori" };
+  if (!validated.success) {
+    return { error: validated.error.issues[0].message };
   }
 
-  const isDuplicate = await checkPhoneDuplicate(telefono);
-  if (isDuplicate) {
-    return { error: "Esiste già un paziente con questo numero di telefono" };
-  }
+  const { nome, cognome, telefono, email = "", note = "" } = validated.data;
 
   const db = getDb();
   const newPatient: NewPatient = {
@@ -86,8 +83,8 @@ export async function createPatient(
     nome: nome.trim(),
     cognome: cognome.trim(),
     telefono: telefono.trim(),
-    email: email?.trim() || null,
-    note: note?.trim() || null,
+    email: email.trim() || null,
+    note: note.trim() || null,
     createdAt: new Date(),
   };
 
@@ -101,15 +98,19 @@ export async function updatePatient(
   _prevState: { error?: string } | undefined,
   formData: FormData
 ) {
-  const nome = formData.get("nome") as string;
-  const cognome = formData.get("cognome") as string;
-  const telefono = formData.get("telefono") as string;
-  const email = (formData.get("email") as string) || null;
-  const note = (formData.get("note") as string) || null;
+  const validated = patientSchema.safeParse({
+    nome: formData.get("nome"),
+    cognome: formData.get("cognome"),
+    telefono: formData.get("telefono"),
+    email: formData.get("email") ?? "",
+    note: formData.get("note") ?? "",
+  });
 
-  if (!nome || !cognome || !telefono) {
-    return { error: "Nome, cognome e telefono sono obbligatori" };
+  if (!validated.success) {
+    return { error: validated.error.issues[0].message };
   }
+
+  const { nome, cognome, telefono, email = "", note = "" } = validated.data;
 
   const isDuplicate = await checkPhoneDuplicate(telefono, id);
   if (isDuplicate) {
@@ -123,8 +124,8 @@ export async function updatePatient(
       nome: nome.trim(),
       cognome: cognome.trim(),
       telefono: telefono.trim(),
-      email: email?.trim() || null,
-      note: note?.trim() || null,
+      email: email.trim() || null,
+      note: note.trim() || null,
     })
     .where(eq(patients.id, id));
 

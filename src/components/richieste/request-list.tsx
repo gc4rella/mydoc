@@ -57,7 +57,11 @@ export function RequestList({ requests, appointments = [] }: RequestListProps) {
 
   const handleDelete = async (id: string) => {
     setActionError(null);
-    await deleteRequest(id);
+    const result = await deleteRequest(id);
+    if (result?.error) {
+      setActionError(result.error);
+      return result;
+    }
     router.refresh();
     return { success: true };
   };

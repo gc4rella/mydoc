@@ -1,7 +1,7 @@
 "use server";
 
 import { getDb } from "@/db";
-import { requests, patients, type Request, type NewRequest } from "@/db/schema";
+import { requests, patients, appointments, doctorSlots, type Request, type NewRequest } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { parseLocalDate } from "@/lib/slot-utils";
@@ -10,12 +10,18 @@ import {
   REQUEST_STATUS,
   type RequestStatus,
 } from "@/lib/request-status";
+import { generateId } from "@/lib/id";
+import { requestSchema } from "@/lib/validations";
 
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
-export type RequestWithPatient = Request & {
+export type RequestWithPatient = {
+  id: string;
+  patientId: string;
+  motivo: string;
+  urgenza: string;
+  stato: string;
+  desiredDate: Date | null;
+  note: string | null;
+  createdAt: Date;
   patient: {
     id: string;
     nome: string;
@@ -142,14 +148,18 @@ export async function createRequest(
   _prevState: { error?: string } | undefined,
   formData: FormData
 ) {
-  const patientId = formData.get("patientId") as string;
-  const motivo = formData.get("motivo") as string;
-  const urgenza = formData.get("urgenza") as "bassa" | "media" | "alta";
-  const desiredDateStr = formData.get("desiredDate") as string;
+  const validated = requestSchema.safeParse({
+    patientId: formData.get("patientId"),
+    motivo: formData.get("motivo"),
+    urgenza: formData.get("urgenza"),
+    desiredDate: formData.get("desiredDate") ?? "",
+  });
 
-  if (!patientId || !motivo || !urgenza) {
-    return { error: "Tutti i campi obbligatori devono essere compilati" };
+  if (!validated.success) {
+    return { error: validated.error.issues[0].message };
   }
+
+  const { patientId, motivo, urgenza, desiredDate = "" } = validated.data;
 
   const db = getDb();
   const newRequest: NewRequest = {
@@ -158,7 +168,7 @@ export async function createRequest(
     motivo: motivo.trim(),
     urgenza,
     stato: REQUEST_STATUS.WAITING,
-    desiredDate: desiredDateStr ? parseLocalDate(desiredDateStr, 0, 0) : null,
+    desiredDate: desiredDate ? parseLocalDate(desiredDate, 0, 0) : null,
     note: null,
     createdAt: new Date(),
   };
@@ -212,11 +222,36 @@ export async function deleteRequest(id: string) {
     .where(eq(requests.id, id))
     .limit(1);
 
-  await db.delete(requests).where(eq(requests.id, id));
+  if (!request[0]) {
+    return { error: "Richiesta non trovata" };
+  }
+
+  try {
+    const appointment = await db
+      .select({ slotId: appointments.slotId })
+      .from(appointments)
+      .where(eq(appointments.requestId, id))
+      .limit(1);
+
+    if (appointment[0]) {
+      await db
+        .update(doctorSlots)
+        .set({ isAvailable: true })
+        .where(eq(doctorSlots.id, appointment[0].slotId));
+      await db.delete(appointments).where(eq(appointments.requestId, id));
+      await db.delete(requests).where(eq(requests.id, id));
+    } else {
+      await db.delete(requests).where(eq(requests.id, id));
+    }
+  } catch {
+    return { error: "Impossibile eliminare la richiesta. Riprova." };
+  }
+
   revalidatePath("/lista-attesa");
   revalidatePath("/");
+  revalidatePath("/agenda");
+  revalidatePath("/slots");
+  revalidatePath(`/pazienti/${request[0].patientId}`);
 
-  if (request[0]) {
-    revalidatePath(`/pazienti/${request[0].patientId}`);
-  }
+  return { success: true };
 }

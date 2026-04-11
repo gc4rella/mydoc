@@ -5,15 +5,16 @@ export interface SessionData {
   isLoggedIn: boolean;
 }
 
-const sessionOptions: SessionOptions = {
-  password:
-    process.env.SESSION_SECRET || "complex_password_at_least_32_characters_long",
+export const sessionOptions: SessionOptions = {
+  password: process.env.SESSION_SECRET ?? (() => {
+    throw new Error("SESSION_SECRET environment variable is required");
+  })(),
   cookieName: "mydoc_session",
   cookieOptions: {
     secure: process.env.NODE_ENV === "production",
     httpOnly: true,
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7, // 1 week
+    maxAge: 60 * 60 * 24 * 7,
   },
 };
 

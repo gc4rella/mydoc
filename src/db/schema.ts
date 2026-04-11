@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { REQUEST_STATUS, REQUEST_STATUS_VALUES } from "@/lib/request-status";
 
 export const patients = sqliteTable("patients", {
@@ -9,24 +9,32 @@ export const patients = sqliteTable("patients", {
   email: text("email"),
   note: text("note"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
 });
 
-export const requests = sqliteTable("requests", {
-  id: text("id").primaryKey(),
-  patientId: text("patient_id")
-    .notNull()
-    .references(() => patients.id),
-  motivo: text("motivo").notNull(),
-  urgenza: text("urgenza", { enum: ["bassa", "media", "alta"] }).notNull(),
-  stato: text("stato", {
-    enum: REQUEST_STATUS_VALUES,
+export const requests = sqliteTable(
+  "requests",
+  {
+    id: text("id").primaryKey(),
+    patientId: text("patient_id")
+      .notNull()
+      .references(() => patients.id),
+    motivo: text("motivo").notNull(),
+    urgenza: text("urgenza", { enum: ["bassa", "media", "alta"] }).notNull(),
+    stato: text("stato", {
+      enum: REQUEST_STATUS_VALUES,
+    })
+      .notNull()
+      .default(REQUEST_STATUS.WAITING),
+    desiredDate: integer("desired_date", { mode: "timestamp_ms" }),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+  },
+  (table) => ({
+    patientIdIdx: index("requests_patient_id_idx").on(table.patientId),
   })
-    .notNull()
-    .default(REQUEST_STATUS.WAITING),
-  desiredDate: integer("desired_date", { mode: "timestamp_ms" }),
-  note: text("note"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
+);
 
 export const doctorSlots = sqliteTable(
   "doctor_slots",
@@ -38,6 +46,7 @@ export const doctorSlots = sqliteTable(
     isAvailable: integer("is_available", { mode: "boolean" }).notNull().default(true),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
   },
   (table) => ({
     startEndUnique: uniqueIndex("doctor_slots_start_end_unique").on(
@@ -59,10 +68,13 @@ export const appointments = sqliteTable(
       .references(() => doctorSlots.id),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
   },
   (table) => ({
     requestUnique: uniqueIndex("appointments_request_id_unique").on(table.requestId),
     slotUnique: uniqueIndex("appointments_slot_id_unique").on(table.slotId),
+    requestIdIdx: index("appointments_request_id_idx").on(table.requestId),
+    slotIdIdx: index("appointments_slot_id_idx").on(table.slotId),
   })
 );
 
