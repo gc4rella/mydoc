@@ -242,7 +242,9 @@ describe("SlotSelectionDialog", () => {
     await waitFor(() => expect(onSelectSlot).toHaveBeenCalledTimes(1));
     await screen.findByText("Prenotazione in corso...");
 
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    // Wait for success message to appear
+    await screen.findByText("OK");
+    // Wait for dialog to close (success message disappears and dialog is gone)
     await waitFor(() => expect(screen.queryByText("Prenota Appuntamento")).toBeNull());
   });
 });

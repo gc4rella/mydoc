@@ -65,7 +65,12 @@ export function PatientRequestActions({
   const handleDelete = async () => {
     setLoading(true);
     setActionError(null);
-    await deleteRequest(request.id);
+    const result = await deleteRequest(request.id);
+    if (result?.error) {
+      setLoading(false);
+      setActionError(result.error);
+      return result;
+    }
     router.refresh();
     setLoading(false);
     return { success: true };

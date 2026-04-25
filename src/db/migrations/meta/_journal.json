@@ -36,6 +36,13 @@
       "when": 1770244609798,
       "tag": "0004_add_unique_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1775458457942,
+      "tag": "0005_shocking_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

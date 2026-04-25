@@ -11,10 +11,7 @@ import {
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { REQUEST_STATUS } from "@/lib/request-status";
-
-function generateId(): string {
-  return crypto.randomUUID();
-}
+import { generateId } from "@/lib/id";
 
 class AppointmentActionError extends Error {
   constructor(message: string) {
@@ -89,7 +86,12 @@ async function withTransientRetry<T>(fn: () => Promise<T>, maxRetries = 2): Prom
   throw new Error("Retry loop exited unexpectedly");
 }
 
-export type AppointmentWithDetails = Appointment & {
+export type AppointmentWithDetails = {
+  id: string;
+  requestId: string;
+  slotId: string;
+  note: string | null;
+  createdAt: Date;
   slot: {
     id: string;
     startTime: Date;
@@ -545,8 +547,14 @@ export async function cancelAppointment(appointmentId: string) {
   const client = db.$client;
 
   const appointment = await db
-    .select({ id: appointments.id, requestId: appointments.requestId, slotId: appointments.slotId })
+    .select({
+      id: appointments.id,
+      requestId: appointments.requestId,
+      slotId: appointments.slotId,
+      patientId: requests.patientId,
+    })
     .from(appointments)
+    .innerJoin(requests, eq(appointments.requestId, requests.id))
     .where(eq(appointments.id, appointmentId))
     .limit(1);
 
@@ -610,6 +618,7 @@ export async function cancelAppointment(appointmentId: string) {
   revalidatePath("/lista-attesa");
   revalidatePath("/slots");
   revalidatePath("/agenda");
+  revalidatePath(`/pazienti/${appointment[0].patientId}`);
 
   return { success: true };
 }
